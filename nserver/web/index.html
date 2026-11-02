@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nS: Nomadnet Server</title>
+<link rel="icon" href="/static/icon.svg?v={{v}}" type="image/svg+xml">
+<script src="/static/theme.js?v={{v}}"></script>
+<link rel="stylesheet" href="/static/style.css?v={{v}}">
+</head>
+<body>
+<div id="splash" class="splash" aria-hidden="true">
+  <img src="/static/splash-dark.svg?v={{v}}" alt="" class="th-dark">
+  <img src="/static/splash-light.svg?v={{v}}" alt="" class="th-light">
+  <div class="splash-tag">One app, many NomadNet nodes</div>
+</div>
+<div id="login" class="login hidden">
+  <form id="login-form" class="login-card">
+    <div class="login-splash"><img src="/static/splash-dark.svg?v={{v}}" alt="nomad server" class="th-dark"><img src="/static/splash-light.svg?v={{v}}" alt="nomad server" class="th-light"></div>
+    <label for="login-pw">Password</label>
+    <input id="login-pw" type="password" autocomplete="current-password">
+    <button type="submit" class="btn primary">Log in</button>
+    <div id="login-err" class="err" role="alert"></div>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header class="top">
+    <div class="wrap top-row">
+      <div class="brand"><img src="/static/splash-dark.svg?v={{v}}" alt="nomad server" class="brand-splash th-dark"><img src="/static/splash-light.svg?v={{v}}" alt="nomad server" class="brand-splash th-light"><span id="version" class="ver"></span></div>
+      <nav id="tabs" class="tabs" aria-label="Sections">
+        <button data-tab="overview" class="tab active">Overview</button>
+        <button data-tab="stats" class="tab">Stats</button>
+        <button data-tab="logs" class="tab">Logs</button>
+        <button data-tab="settings" class="tab">Settings</button>
+        <button data-tab="honeypot" class="tab adv">Honeypot</button>
+        <button data-tab="about" class="tab">About</button>
+      </nav>
+      <div class="top-right">
+        <span id="conn" class="conn"><span class="dot"></span><span id="conn-text">connecting</span></span>
+        <button id="theme" class="icon-btn" title="Switch to light mode" aria-label="Switch to light mode">
+          <svg class="i-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.1M10 16.1v2.1M1.8 10h2.1M16.1 10h2.1M4.2 4.2l1.5 1.5M14.3 14.3l1.5 1.5M4.2 15.8l1.5-1.5M14.3 5.7l1.5-1.5"/></svg>
+          <svg class="i-moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9z"/></svg>
+        </button>
+        <button id="logout" class="btn ghost small hidden">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="tab-overview" class="page">
+      <div id="strip" class="strip"></div>
+      <div class="sec-head">
+        <h2>Nodes</h2>
+        <span class="row-btns tight">
+          <button id="new-node-btn" class="btn small">Create new node</button>
+          <button id="restore-btn" class="btn small ghost">Restore a node from backup</button>
+          <input id="restore-file" type="file" accept=".zip,application/zip" class="hidden" aria-label="Backup zip">
+        </span>
+      </div>
+      <div id="nodes"></div>
+      <div class="panel">
+        <div class="panel-head"><h2>Reticulum Status</h2><span id="rns-mode" class="muted small"></span></div>
+        <div id="rns" class="ifaces"></div>
+      </div>
+      <div class="panel">
+        <h2>Live Clients Connections</h2>
+        <div id="online"></div>
+      </div>
+    </section>
+
+    <section id="tab-stats" class="page hidden">
+      <div class="toolbar">
+        <span class="pick"><span class="ndot" id="stats-dot"></span><select id="stats-node" aria-label="Node"></select></span>
+        <div class="seg" id="stats-range" role="group" aria-label="Period">
+          <button data-days="1">24 hours</button><button data-days="14">14 days</button><button data-days="30" class="active">30 days</button><button data-days="90">90 days</button>
+        </div>
+        <span id="stats-since" class="muted small"></span>
+      </div>
+      <div class="kgroup">
+        <div class="kgroup-title">Requests</div>
+        <div id="stats-req" class="strip"></div>
+      </div>
+      <div class="kgroup">
+        <div class="kgroup-title">Traffic</div>
+        <div id="stats-traffic" class="strip"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div class="seg" id="chart-mode" role="group" aria-label="Chart">
+            <button data-mode="requests" class="active">Requests</button><button data-mode="traffic">Traffic</button>
+          </div>
+          <div id="legend" class="legend"></div>
+        </div>
+        <div id="chart" class="chart"></div>
+      </div>
+      <div class="grid2">
+        <div class="panel"><h2>Pages</h2><div id="top-pages"></div></div>
+        <div class="panel"><h2>Files and images</h2><div id="top-files"></div></div>
+        <div class="panel"><h2>Identified visitors</h2><div id="top-visitors"></div></div>
+        <div class="panel"><h2>Self-refreshing pages</h2><div id="top-refresh"></div></div>
+      </div>
+    </section>
+
+    <section id="tab-logs" class="page hidden">
+      <div class="toolbar">
+        <select id="log-node" aria-label="Node"><option value="">All nodes</option></select>
+        <div class="seg" id="log-kinds" role="group" aria-label="Show">
+          <button data-kind="all" class="active">All</button><button data-kind="page">Pages</button><button data-kind="connect">Visitors</button><button data-kind="file">Files</button><button data-kind="problem">Warnings</button>
+        </div>
+        <input id="log-filter" type="search" placeholder="Filter" aria-label="Filter">
+        <label class="check" for="log-follow"><input id="log-follow" type="checkbox" checked>Follow</label>
+      </div>
+      <div class="panel log-panel"><div id="log" class="log"></div></div>
+    </section>
+
+    <section id="tab-settings" class="page hidden">
+      <div class="grid2 equal">
+        <div class="panel">
+          <div class="panel-head"><h2>Node</h2><span class="pick"><span class="ndot" id="set-dot"></span><select id="set-node" aria-label="Node"></select></span>
+            <span class="grow"></span><button id="set-edit" class="btn small">Edit pages</button><button id="set-open" class="btn small ghost hidden">Open folder</button></div>
+          <div id="node-addr" class="form"></div>
+          <form id="node-form" class="form"></form>
+          <div class="row-btns">
+            <button id="node-save" class="btn primary">Save</button>
+            <button id="node-save-restart" class="btn">Save and restart node</button>
+            <span id="node-msg" class="muted small"></span>
+          </div>
+          <h3>Identity and backup</h3>
+          <p class="muted small">The identity is the node's private key: it gives the node its address. Keep exports and backups private. Two nodes can never share one identity.</p>
+          <div class="row-btns">
+            <button id="node-backup" class="btn">Backup node</button>
+            <button id="id-export" class="btn ghost">Export identity</button>
+            <button id="id-import" class="btn ghost">Import identity</button>
+            <button id="id-new" class="btn ghost">New identity</button>
+            <input id="id-file" type="file" class="hidden" aria-label="Identity file">
+          </div>
+          <div class="danger-zone">
+            <button id="node-reset" class="btn ghost danger">Reset counters</button>
+            <button id="node-delete" class="btn ghost danger">Remove node</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Server</h2>
+          <form id="server-form" class="form"></form>
+          <div class="row-btns">
+            <button id="server-save" class="btn primary">Save</button>
+            <span id="server-msg" class="muted small"></span>
+          </div>
+          <h3>Web UI password</h3>
+          <div class="form">
+            <div class="field"><label for="pw1">New password</label><input id="pw1" type="password" autocomplete="new-password" placeholder="Empty = no password"></div>
+            <div class="field"><label for="pw2">Repeat</label><input id="pw2" type="password" autocomplete="new-password"></div>
+          </div>
+          <div class="row-btns"><button id="pw-save" class="btn">Set password</button><span id="pw-msg" class="muted small"></span></div>
+          <h3>Process</h3>
+          <div class="row-btns"><button id="server-restart" class="btn danger">Restart server</button><button id="server-stop" class="btn ghost danger">Stop server</button><span id="restart-msg" class="muted small"></span></div>
+          <div id="sc-box" class="hidden">
+            <h3>Shortcuts</h3>
+            <div class="form">
+              <div class="field"><label for="sc-desktop">nS icon on the desktop</label><input id="sc-desktop" type="checkbox" data-sc="desktop"></div>
+              <div class="field"><label for="sc-menu">nS icon in the app menu</label><input id="sc-menu" type="checkbox" data-sc="menu"><div class="hint" id="sc-hint"></div></div>
+            </div>
+          </div>
+          <h3>Folders</h3>
+          <div id="paths" class="paths"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Blocked visitors</h2><span class="muted small">Blocked LXMF addresses are disconnected as soon as they identify, on every node.</span></div>
+        <div id="blocked"></div>
+        <div class="row-btns"><button id="bl-export" class="btn small ghost">Export as text</button><span class="muted small">One peer per line: identity hash (for Reticulum's blackhole), LXMF address, reason.</span></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Removed nodes</h2><span id="trash-note" class="muted small">Nodes you remove wait here with their identity until you restore or delete them.</span></div>
+        <div id="trash"></div>
+      </div>
+    </section>
+    <section id="tab-honeypot" class="page hidden">
+      <div class="sec-head">
+        <h2>Honeypot nodes</h2>
+        <span class="row-btns tight">
+          <button id="adv-off" class="btn small ghost">Turn off advanced mode</button>
+          <button id="honeypot-btn" class="btn small">Create honeypot node</button>
+        </span>
+      </div>
+      <p class="muted small hp-lead">Bait nodes: an archive of linked pages with hidden trap links that people never see and crawlers always follow. Whoever opens a trap, or browses like a crawler, is blocked on the honeypots (Block on all nodes extends it). They keep working when advanced mode is off.</p>
+      <div id="hp-strip" class="strip"></div>
+      <div id="hp-nodes"></div>
+      <div id="hp-counters"></div>
+      <div class="panel">
+        <div class="panel-head"><h2>Honeypot peer connections</h2><span class="muted small">Kept on disk: one row per peer, live ones first.</span><button id="hp-clear" class="btn small ghost danger">Clear history</button></div>
+        <div class="seg hp-filter" id="hp-filter" role="group" aria-label="Show"></div>
+        <div id="hp-peers"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Known crawlers</h2><span class="muted small">Every identified crawler the honeypots caught, kept to see if it comes back, also on new honeypots.</span></div>
+        <div id="hp-crawlers"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Honeypot settings</h2><span class="pick"><span class="ndot" id="hp-dot"></span><select id="hp-node" aria-label="Honeypot node"></select></span></div>
+        <form id="hp-form" class="form"></form>
+        <div class="row-btns"><button id="hp-save" class="btn primary">Save</button><span id="hp-msg" class="muted small"></span></div>
+        <div class="danger-zone">
+          <button id="hp-reset" class="btn ghost danger">Reset counters</button>
+          <button id="hp-delete" class="btn ghost danger">Remove honeypot</button>
+        </div>
+      </div>
+    </section>
+    <section id="tab-about" class="page hidden">
+      <div class="about-head">
+        <img src="/static/splash-dark.svg?v={{v}}" alt="nomad server" class="about-splash th-dark">
+        <img src="/static/splash-light.svg?v={{v}}" alt="nomad server" class="about-splash th-light">
+        <div>
+          <p class="about-lead">One app that hosts many NomadNet nodes, with a web interface to run them.</p>
+          <span id="about-ver" class="ver"></span>
+        </div>
+      </div>
+      <div class="grid2 equal">
+        <div class="panel">
+          <h2>Features</h2>
+          <ul class="feat">
+            <li><b>Many nodes, one app.</b> Each node has its own identity, pages and files, and starts, stops or restarts on its own.</li>
+            <li><b>Web interface.</b> Overview, stats, live log and settings, also on a headless server, with an optional password.</li>
+            <li><b>Edit pages in the browser.</b> Write, upload, rename and move pages and files; saved pages are served at once.</li>
+            <li><b>Counters and traffic.</b> Requests and bytes per page, per day and per hour, visit counters on the pages, crawler-like visitors marked.</li>
+            <li><b>Python pages on Windows too.</b> Pages with a Python shebang run on every system, plus plugins for dynamic pages inside the server.</li>
+            <li><b>Footer and watermark.</b> Optional visits line and "served by" line on every page, partials left alone.</li>
+            <li><b>Rate limit per visitor</b> and the <span class="mono">.allowed</span> lists of NomadNet.</li>
+            <li><b>Light.</b> Needs only <span class="mono">rns</span>; uses rnsd when it runs, otherwise its own instance.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h2>Links</h2>
+          <div class="links">
+            <a href="https://github.com/fr33n0w/nomad-server" target="_blank" rel="noopener"><b>nomad-server</b><span>Source, issues and releases</span></a>
+            <a href="https://fr33n0w.github.io/micron-composer/" target="_blank" rel="noopener"><b>Micron Composer</b><span>Write a micron page visually, then paste it in Edit pages</span></a>
+            <a href="https://fr33n0w.github.io/micron-art/" target="_blank" rel="noopener"><b>Micron Artist</b><span>Turn ASCII art into colored micron for headers and logos</span></a>
+            <a href="https://github.com/fr33n0w/rBrowser2" target="_blank" rel="noopener"><b>rBrowser2</b><span>Browse NomadNet nodes from a web browser</span></a>
+            <a href="https://github.com/markqvist/NomadNet" target="_blank" rel="noopener"><b>NomadNet</b><span>The original client and node, and the micron format</span></a>
+            <a href="https://reticulum.network" target="_blank" rel="noopener"><b>Reticulum</b><span>The network everything runs on</span></a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h2 id="dlg-title"></h2>
+    <div id="dlg-body"></div>
+    <div class="row-btns end">
+      <button value="cancel" class="btn ghost">Cancel</button>
+      <button value="ok" id="dlg-ok" class="btn primary">OK</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="pm" class="pm" aria-labelledby="pm-title">
+  <div class="pm-head">
+    <span class="ndot" id="pm-dot"></span>
+    <h2 id="pm-title">Pages</h2>
+    <span id="pm-note" class="muted small"></span>
+    <span class="grow"></span>
+    <button id="pm-open" class="btn small ghost hidden">Open folder</button>
+    <button id="pm-close" class="icon-btn" title="Close" aria-label="Close">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>
+    </button>
+  </div>
+  <div class="pm-body">
+    <aside class="pm-side">
+      <div class="pm-tools">
+        <button id="pm-new" class="btn small">New page</button>
+        <button id="pm-mkdir" class="btn small">New folder</button>
+        <button id="pm-upload" class="btn small">Upload</button>
+        <input id="pm-file" type="file" multiple class="hidden" aria-label="Files to upload">
+      </div>
+      <div id="pm-where" class="pm-where muted small"></div>
+      <div id="pm-tree" class="pm-tree"></div>
+    </aside>
+    <section class="pm-main">
+      <div class="pm-bar">
+        <span id="pm-path" class="mono"></span>
+        <span id="pm-state" class="muted small"></span>
+        <span class="grow"></span>
+        <button id="pm-rename" class="btn small ghost">Rename or move</button>
+        <button id="pm-delete" class="btn small ghost danger">Move to trash</button>
+        <button id="pm-save" class="btn small primary">Save</button>
+      </div>
+      <textarea id="pm-text" class="pm-text hidden" spellcheck="false" aria-label="File content"></textarea>
+      <div id="pm-info" class="pm-info"></div>
+    </section>
+  </div>
+</dialog>
+<div id="toast" class="toast" role="status"></div>
+<script src="/static/app.js?v={{v}}"></script>
+</body>
+</html>

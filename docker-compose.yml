@@ -1,0 +1,24 @@
+services:
+  nomad-server:
+    build: .
+    container_name: nomad-server
+    restart: unless-stopped
+    # your user (id -u, id -g): the files in nomad-data stay yours, editable without sudo.
+    # Create the folder first (mkdir nomad-data), or Docker makes it owned by root.
+    user: "1000:1000"
+    volumes:
+      # server.cfg, nodes, identities, counters, logs, Reticulum config (reticulum/config)
+      - ./nomad-data:/data
+      # the host's time zone, for the log and the daily counters
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8484:8484"      # web UI
+      # - "4242:4242"    # if you add a TCPServerInterface to nomad-data/reticulum/config
+    environment:
+      - NOMAD_PASSWORD=${NOMAD_PASSWORD:-}
+
+# Using the host's rnsd instead of an own Reticulum instance (Linux): replace
+# "ports" with "network_mode: host" and add to volumes and environment:
+#   volumes:     - ~/.reticulum:/reticulum
+#   environment: - NOMAD_RNS_CONFIG=/reticulum
+# (with the same user as rnsd, so the files it writes there stay readable for rnsd)

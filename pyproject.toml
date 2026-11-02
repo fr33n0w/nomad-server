@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nomad-server"
+dynamic = ["version"]
+description = "Many NomadNet nodes in one process, with a web UI"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+dependencies = ["rns>=1.0.0"]
+
+[project.optional-dependencies]
+images = ["pillow"]
+
+[project.urls]
+Homepage = "https://github.com/fr33n0w/nomad-server"
+
+[project.scripts]
+nomad-server = "nomad_server:main"
+
+[tool.setuptools]
+py-modules = ["nomad_server"]
+packages = ["nserver"]
+
+[tool.setuptools.package-data]
+nserver = ["web/*", "bait/*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "nserver.VERSION" }
