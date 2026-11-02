@@ -1,0 +1,12 @@
+nodes/
+data/
+logs/
+server.cfg
+nomad-data/
+tests/
+_dist/
+__pycache__/
+**/__pycache__/
+*.pyc
+start.bat
+start_hidden.vbs
