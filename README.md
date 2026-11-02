@@ -50,22 +50,46 @@ If `rnsd` is running, the nodes use it; otherwise nomad-server runs its own Reti
 
 Only one server runs on a folder: the same identities can never be online twice. Started again with `--app`, it just opens the window.
 
-## Console
+## Command line
 
-The commands talk to the server already running on the same folder:
+`python nomad_server.py [options]`, or `nomad-server [options]` when installed with pip or pipx.
 
-```
-python nomad_server.py --status            nodes, interfaces, visitors (--json for raw data)
-python nomad_server.py --log 100           last lines of the log, -f to follow, --node ID for one node
-python nomad_server.py --stop              stop it (refused under systemd: use systemctl)
-python nomad_server.py --new-node "Name"   create a node folder
-python nomad_server.py --set-password      web UI password (empty = none)
-python nomad_server.py --block LXMF --reason "Spam" --mode page|silent|tarpit|maze
-python nomad_server.py --unblock LXMF
-python nomad_server.py --blocklist         --export-blocklist FILE writes it to a file
-```
+**Starting the server**
 
-Start options: `--app`, `--service` (quiet: only warnings and errors on screen, full log in `logs/server.log`), `--no-webui`, `--verbose` (Reticulum debug log), `--base DIR` (keep `server.cfg`, `nodes/` and `data/` in another folder; console commands need the same `--base`).
+| Option | |
+|---|---|
+| *(none)* | run, log on the terminal |
+| `--app` | also open the web UI in an app window (Edge or Chrome); closing it stops a server it started. If the server already runs, only opens the window |
+| `--service` | quiet: only warnings and errors on the terminal or journal, full log in `logs/server.log` |
+| `--no-webui` | no web interface; the console commands below still work |
+| `--verbose` | Reticulum debug log |
+| `--base DIR` | folder with `server.cfg`, `nodes/` and `data/`. Default: next to the program, `~/.nomad-server` when installed with pip or pipx |
+
+**Commands to the running server** (on the same folder, so with the same `--base`)
+
+| Option | |
+|---|---|
+| `--status` | nodes, interfaces, visitors connected now |
+| `--json` | with `--status`: the raw data |
+| `--log [N]` | last N lines of the log (60 if N is left out) |
+| `-f`, `--follow` | with `--log`: keep showing new lines (Ctrl+C to stop) |
+| `--node ID` | with `--log`: only this node |
+| `--stop` | stop it, also a hidden one (refused under systemd: use `systemctl stop nomad-server`) |
+| `--block LXMF` | block a peer on every node |
+| `--reason TEXT` | with `--block`: the reason shown to it |
+| `--mode MODE` | with `--block`: `page` (default, a page with the reason), `silent`, `tarpit` or `maze` |
+| `--unblock LXMF` | remove a peer from the blocklist |
+| `--blocklist` | print the blocklist (identity hash, LXMF address, reason) |
+| `--export-blocklist FILE` | save it to a text file |
+
+**Working on the files** (no running server needed; restart it afterwards)
+
+| Option | |
+|---|---|
+| `--new-node NAME` | create a node folder, with a new identity and a sample `index.mu` |
+| `--set-password` | set the web UI password (empty = no password) |
+
+**Other**: `--version`, `-h` / `--help`.
 
 ## Web UI
 
@@ -154,7 +178,7 @@ Peers that identify are listed with their LXMF address and, when they announced 
 
 ![Honeypot](docs/honeypot.png)
 
-Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: blocked on the honeypots if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze of small fake pages, rate limited so the mesh is never flooded. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. With advanced mode off, honeypots keep working and leave no trace in the other tabs.
+Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: blocked on the honeypots if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze of small fake pages, rate limited so the mesh is never flooded. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
 
 ## Docker
 
@@ -163,7 +187,7 @@ mkdir nomad-data
 NOMAD_PASSWORD=yourpassword docker compose up -d
 ```
 
-The UI is on port 8484, everything else in `nomad-data/`: settings, nodes, identities, counters, logs and the Reticulum config (`nomad-data/reticulum/config`, created at the first start: add an interface, Docker networks have no peers for AutoInterface). The compose file runs as user 1000:1000 so the files stay yours, and comments show how to use the host's `rnsd` instead. Console commands: `docker compose exec nomad-server python /app/nomad_server.py --base /data --status`. **Stop server** in the UI is restarted by Docker; use `docker compose stop`.
+The UI is on port 8484, everything else in `nomad-data/`: settings, nodes, identities, counters, logs and the Reticulum config (`nomad-data/reticulum/config`, created at the first start: add an interface, Docker networks have no peers for AutoInterface). The compose file runs as user 1000:1000 so the files stay yours, and comments show how to use the host's `rnsd` instead. Environment variables: `NOMAD_PASSWORD` (web UI password), `NOMAD_PORT` (UI port inside the container, default 8484), `NOMAD_RNS_CONFIG` (Reticulum config folder, default `/data/reticulum`). Console commands: `docker compose exec nomad-server python /app/nomad_server.py --base /data --status`. **Stop server** in the UI is restarted by Docker; use `docker compose stop`.
 
 ## Resources
 

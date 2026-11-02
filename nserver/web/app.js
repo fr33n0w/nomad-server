@@ -556,14 +556,23 @@ function applyAdvanced() {
   document.documentElement.classList.toggle("advanced", advanced());
 }
 applyAdvanced();
-function setAdvanced(on) {
+async function setAdvanced(on) {
+  // advanced mode off = honeypots off: they stop, and stay stopped until started again
+  const running = on ? [] : hpNodes().filter((n) => n.state === "running");
+  if (running.length) {
+    if (!(await ask("Turn off advanced mode", `<p>Honeypots running now: <b>${running.map((n) => esc(n.name)).join(", ")}</b>. They are stopped and stay stopped; turn advanced mode on again and press Start to bring them back. The blocklist stays as it is.</p>`, "Stop honeypots and turn off", true))) return;
+    for (const n of running) {
+      await api(`/api/node/${encodeURIComponent(n.id)}/stop`, {}).catch((e) => toast("Error: " + e.message));
+    }
+    await loadOverview();
+  }
   try { localStorage.setItem("ns-advanced", on ? "1" : "0"); } catch (err) { /* private mode */ }
   applyAdvanced();
   fillNodeSelects();
   renderLog();
   loadBlocked();
   loadTrash();
-  toast(on ? "Advanced mode on: see the Honeypot tab" : "Advanced mode off: honeypots keep working, hidden");
+  toast(on ? "Advanced mode on: see the Honeypot tab" : "Advanced mode off: honeypots stopped and hidden");
   if (!on && tab === "honeypot") setTab("overview");
 }
 let logoClicks = [];

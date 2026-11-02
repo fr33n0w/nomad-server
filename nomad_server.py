@@ -233,10 +233,12 @@ def run(args):
                 os.remove(f)
             except OSError:
                 pass
-        # what Reticulum keeps on disk (paths, known peers): os._exit below skips atexit
+        # an own Reticulum instance keeps paths and known peers on disk: os._exit below
+        # skips atexit (a client of rnsd has nothing to save)
         try:
-            import RNS
-            RNS.Reticulum.exit_handler()
+            if srv.reticulum and not srv.reticulum.is_connected_to_shared_instance:
+                import RNS
+                RNS.Reticulum.exit_handler()
         except Exception:
             pass
     if srv.restart_requested:
@@ -268,7 +270,7 @@ def main():
     ap.add_argument("--blocklist", action="store_true", help="show the blocklist")
     ap.add_argument("--export-blocklist", metavar="FILE", help="save the blocklist as a text file")
     ap.add_argument("--set-password", action="store_true", help="password for the web UI")
-    ap.add_argument("--base", metavar="DIR", help="folder with server.cfg and nodes/ (default: next to the program)")
+    ap.add_argument("--base", metavar="DIR", help="folder with server.cfg and nodes/ (default: next to the program, ~/.nomad-server if installed with pip)")
     ap.add_argument("--after", type=int, help=argparse.SUPPRESS)
     ap.add_argument("--version", action="version", version=VERSION)
     args = ap.parse_args()

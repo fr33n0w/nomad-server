@@ -50,22 +50,46 @@ Se `rnsd` è acceso, i nodi usano quello; altrimenti nomad-server avvia una sua 
 
 Su una cartella gira un solo server: le stesse identità non vanno mai in rete due volte. Rilanciato con `--app`, apre solo la finestra.
 
-## Console
+## Riga di comando
 
-I comandi parlano col server già acceso sulla stessa cartella:
+`python nomad_server.py [opzioni]`, oppure `nomad-server [opzioni]` se installato con pip o pipx.
 
-```
-python nomad_server.py --status            nodi, interfacce, visitatori (--json per i dati grezzi)
-python nomad_server.py --log 100           ultime righe del log, -f per seguirlo, --node ID per un nodo
-python nomad_server.py --stop              lo ferma (rifiutato sotto systemd: usa systemctl)
-python nomad_server.py --new-node "Nome"   crea la cartella di un nodo
-python nomad_server.py --set-password      password della web UI (vuota = nessuna)
-python nomad_server.py --block LXMF --reason "Spam" --mode page|silent|tarpit|maze
-python nomad_server.py --unblock LXMF
-python nomad_server.py --blocklist         --export-blocklist FILE la scrive su file
-```
+**Avvio del server**
 
-Opzioni di avvio: `--app`, `--service` (silenzioso: a schermo solo avvisi ed errori, log completo in `logs/server.log`), `--no-webui`, `--verbose` (log di debug di Reticulum), `--base DIR` (`server.cfg`, `nodes/` e `data/` in un'altra cartella; i comandi da console vogliono la stessa `--base`).
+| Opzione | |
+|---|---|
+| *(nessuna)* | avvia, log nel terminale |
+| `--app` | apre anche la web UI in una finestra app (Edge o Chrome); chiudendola si ferma il server che ha avviato. Se il server gira già, apre solo la finestra |
+| `--service` | silenzioso: nel terminale o nel journal solo avvisi ed errori, log completo in `logs/server.log` |
+| `--no-webui` | senza interfaccia web; i comandi da console qui sotto funzionano lo stesso |
+| `--verbose` | log di debug di Reticulum |
+| `--base DIR` | cartella con `server.cfg`, `nodes/` e `data/`. Default: accanto al programma, `~/.nomad-server` se installato con pip o pipx |
+
+**Comandi al server acceso** (sulla stessa cartella, quindi con la stessa `--base`)
+
+| Opzione | |
+|---|---|
+| `--status` | nodi, interfacce, visitatori collegati adesso |
+| `--json` | con `--status`: i dati grezzi |
+| `--log [N]` | ultime N righe del log (60 se N manca) |
+| `-f`, `--follow` | con `--log`: continua a mostrare le righe nuove (Ctrl+C per uscire) |
+| `--node ID` | con `--log`: solo questo nodo |
+| `--stop` | lo ferma, anche se nascosto (rifiutato sotto systemd: usa `systemctl stop nomad-server`) |
+| `--block LXMF` | blocca un peer su tutti i nodi |
+| `--reason TESTO` | con `--block`: il motivo che gli viene mostrato |
+| `--mode MODO` | con `--block`: `page` (default, una pagina col motivo), `silent`, `tarpit` o `maze` |
+| `--unblock LXMF` | toglie un peer dalla blocklist |
+| `--blocklist` | stampa la blocklist (hash dell'identità, indirizzo LXMF, motivo) |
+| `--export-blocklist FILE` | la salva in un file di testo |
+
+**Lavoro sui file** (non serve il server acceso; riavvialo dopo)
+
+| Opzione | |
+|---|---|
+| `--new-node NOME` | crea la cartella di un nodo, con identità nuova e un `index.mu` di esempio |
+| `--set-password` | imposta la password della web UI (vuota = nessuna password) |
+
+**Altro**: `--version`, `-h` / `--help`.
 
 ## Web UI
 
@@ -154,7 +178,7 @@ I peer che si identificano compaiono con l'indirizzo LXMF e, se ne hanno annunci
 
 ![Honeypot](docs/honeypot.png)
 
-Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: bloccato sugli honeypot se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto di piccole pagine finte, con un limite di velocità così la mesh non si intasa. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Con la modalità avanzata spenta gli honeypot continuano a lavorare e non lasciano traccia nelle altre schede.
+Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: bloccato sugli honeypot se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto di piccole pagine finte, con un limite di velocità così la mesh non si intasa. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
 
 ## Docker
 
@@ -163,7 +187,7 @@ mkdir nomad-data
 NOMAD_PASSWORD=latuapassword docker compose up -d
 ```
 
-La UI è sulla porta 8484, tutto il resto in `nomad-data/`: impostazioni, nodi, identità, contatori, log e config di Reticulum (`nomad-data/reticulum/config`, creata al primo avvio: aggiungi un'interfaccia, nelle reti Docker l'AutoInterface non trova nessuno). Il compose gira come utente 1000:1000 così i file restano tuoi, e nei commenti spiega come usare il `rnsd` dell'host. Comandi da console: `docker compose exec nomad-server python /app/nomad_server.py --base /data --status`. **Stop server** nella UI viene riavviato da Docker; usa `docker compose stop`.
+La UI è sulla porta 8484, tutto il resto in `nomad-data/`: impostazioni, nodi, identità, contatori, log e config di Reticulum (`nomad-data/reticulum/config`, creata al primo avvio: aggiungi un'interfaccia, nelle reti Docker l'AutoInterface non trova nessuno). Il compose gira come utente 1000:1000 così i file restano tuoi, e nei commenti spiega come usare il `rnsd` dell'host. Variabili d'ambiente: `NOMAD_PASSWORD` (password della web UI), `NOMAD_PORT` (porta della UI dentro il container, default 8484), `NOMAD_RNS_CONFIG` (cartella della config Reticulum, default `/data/reticulum`). Comandi da console: `docker compose exec nomad-server python /app/nomad_server.py --base /data --status`. **Stop server** nella UI viene riavviato da Docker; usa `docker compose stop`.
 
 ## Risorse
 
