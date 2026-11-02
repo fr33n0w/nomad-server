@@ -1,0 +1,16 @@
+# your nodes (identities!), settings and counters stay private
+nodes/
+server.cfg
+data/
+logs/
+tests/_run/
+__pycache__/
+*.pyc
+_dist/
+tests/rns/storage/
+tests/rns/interfaces/
+tests/_modes/
+nomad-data/
+build/
+*.egg-info/
+dist/
