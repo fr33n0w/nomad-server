@@ -184,12 +184,12 @@
           <button id="honeypot-btn" class="btn small">Create honeypot node</button>
         </span>
       </div>
-      <p class="muted small hp-lead">Bait nodes: an archive of linked pages with hidden trap links that people never see and crawlers always follow. Whoever opens a trap, or browses like a crawler, is blocked on the honeypots (Block on all nodes extends it). Turning advanced mode off stops them.</p>
+      <p class="muted small hp-lead">Bait nodes: an archive of linked pages with hidden trap links that people never see and crawlers always follow. Whoever opens a trap, or browses like a crawler, is caught on the honeypots (Put caught visitors in the blocklist, in the settings, also blocks it). Turning advanced mode off stops them.</p>
       <div id="hp-strip" class="strip"></div>
       <div id="hp-nodes"></div>
       <div id="hp-counters"></div>
       <div class="panel">
-        <div class="panel-head"><h2>Honeypot peer connections</h2><span class="muted small">Kept on disk: one row per peer, live ones first.</span><button id="hp-clear" class="btn small ghost danger">Clear history</button></div>
+        <div class="panel-head"><h2>Honeypot peer connections</h2><span class="muted small">Kept on disk: one row per peer, newest arrival first. <span id="hp-paused" hidden>Updates paused while a page list is open.</span></span><button id="hp-clear" class="btn small ghost danger">Clear history</button></div>
         <div class="seg hp-filter" id="hp-filter" role="group" aria-label="Show"></div>
         <div id="hp-peers"></div>
       </div>

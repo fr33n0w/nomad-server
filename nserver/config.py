@@ -46,6 +46,7 @@ NODE_DEFAULTS = {
         "traps": "",
         "mode": "tarpit",
         "reason": "Crawler",
+        "to_blocklist": "no",
         "autoblock": "no",
         "crawler_pages": "20",
         "crawler_seconds": "120",
@@ -116,12 +117,15 @@ show_on_pages = yes
 
 [honeypot]
 # Trap pages, comma separated, * at the end = everything below (e.g. /page/trap/*).
-# Whoever opens one is blocked if identified, tarpitted for the rest of its link if not.
+# Whoever opens one is caught: by LXMF address if identified, for the rest of its link if not.
 traps =
-# how trapped visitors are blocked: page (with the reason), silent, tarpit, or
+# how caught visitors are answered: page (with the reason), silent, tarpit, or
 # maze (endless small fake pages, at most maze_per_minute per link)
 mode = tarpit
 reason = Crawler
+# yes = identified visitors caught here also go into the blocklist;
+# no = they stay caught on the honeypots only (listed in the known crawlers)
+to_blocklist = no
 # yes = also block crawler-like visitors:
 #  - one link opening crawler_pages different pages within crawler_seconds (fast crawlers)
 #  - one link opening long_pages different pages within long_seconds (slow, on one link)

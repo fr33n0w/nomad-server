@@ -783,6 +783,13 @@ class Node:
         if blocked and blocked.get("scope") == "honeypots" and self.is_honeypot:
             # honeypot blocks follow the mode this honeypot uses now
             mode = self.cfg.get("honeypot", "mode") or mode
+        if (not mode and who and self.is_honeypot and not self.cfg.getbool("honeypot", "to_blocklist")
+                and self.server.is_caught(who)):
+            # caught before and kept out of the blocklist: the honeypots keep treating it as caught
+            mode = self.cfg.get("honeypot", "mode") or "tarpit"
+            if entry:
+                entry["trapped"], entry["caught_why"] = mode, "caught before"
+                entry["trap_reason"] = self.cfg.get("honeypot", "reason") or "Crawler"
         if mode == "maze" and self.is_honeypot:
             # not refused: it gets fake pages, counted by maze_page
             return "maze"
@@ -864,6 +871,13 @@ class Node:
                      **maze_of(e)}
                     for h, e in self.links.items()]
 
+    def caught_count(self):
+        """Peers caught here, counted like the peer list: one per LXMF address, one per link otherwise."""
+        with self.lock:
+            recs = self.peers() + [{"who": e.get("who"), "link": short(h), "caught": e.get("caught_why")}
+                                   for h, e in self.links.items()]
+        return len({r.get("who") or r.get("link") for r in recs if r.get("caught") not in (None, "", "blocked by hand")})
+
     @property
     def is_honeypot(self):
         return self.cfg.get("node", "type") == "honeypot"
@@ -887,9 +901,12 @@ class Node:
         self.stats.bump("trapped")
         entry["trapped"], entry["trap_reason"], entry["caught_why"] = mode, reason, why
         if entry.get("who"):
-            # caught by a honeypot: blocked on the honeypots; "Block on all nodes" widens it
-            self.server.block(entry["who"], entry.get("name", ""), self.id, reason, mode, scope="honeypots",
-                              identity=entry.get("identity", ""), via="auto: " + why)
+            if self.cfg.getbool("honeypot", "to_blocklist"):
+                # blocked on the honeypots; "Block on all nodes" widens it
+                self.server.block(entry["who"], entry.get("name", ""), self.id, reason, mode, scope="honeypots",
+                                  identity=entry.get("identity", ""), via="auto: " + why)
+            else:
+                self.log("Caught LXMF %s (%s): %s on the honeypots" % (entry["who"], why, mode), "warn")
             self.server.crawler_seen(entry["who"], self, entry.get("name", ""), entry.get("identity", ""), caught=True)
         else:
             self.log("Caught link %s (%s): %s for the rest of the link" % (short(entry["link"].link_id), why, mode), "warn")
@@ -995,6 +1012,6 @@ class Node:
                 "pages": self.pages_count, "files": self.files_count,
                 "plugin": bool(self.plugin), "online": online,
                 "type": "honeypot" if self.is_honeypot else "normal",
-                "caught": self.stats.d["totals"].get("trapped", 0), "stats": self.stats.summary(),
+                "caught": self.caught_count() if self.is_honeypot else 0, "stats": self.stats.summary(),
                 "spark": self.stats.spark(),
                 "settings": self.cfg.as_dict()}

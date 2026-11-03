@@ -35,8 +35,22 @@ function span(s) {
 }
 const ago = (t) => (t ? `${span(Date.now() / 1000 - t)} ago` : "never");
 const date = (t) => new Date(t * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const pad = (n) => String(n).padStart(2, "0");
+// "03/11 00:52": the date and time, next to the relative one
+function stamp(t) {
+  const d = new Date(t * 1000);
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+const when = (t) => (t ? `${stamp(t)} · ${ago(t)}` : "never");
+// for table cells: the time on top, how long ago below
+const whenCell = (t) => (t ? `${stamp(t)}<div class="muted small">${ago(t)}</div>` : "never");
+// well separated hues, no red (it stays for errors); the server's nodes take them in address order
+const HUES = [210, 40, 140, 275, 180, 90, 245, 60];
 // A node's hue comes from its address, so it stays the same everywhere and across restarts
 function hue(address) {
+  const all = (overview?.nodes || []).map((n) => n.address).filter(Boolean).sort();
+  const i = all.indexOf(address);
+  if (i >= 0) return HUES[i % HUES.length];
   const h = parseInt(String(address || "0").slice(0, 6), 16) % 360 || 0;
   // spread over 30..300 only: red, pink and magenta stay for errors
   return Math.round(30 + (h * 270) / 360);
@@ -229,7 +243,7 @@ function renderOverview() {
       <td class="who">${esc(v.link)}</td>
       <td>${v.who ? `<span class="who">${esc(v.who)}</span>${v.name ? ` <span class="muted">${esc(v.name)}</span>` : ""} ${blockBtn(v.who, v.name, n.id)}`
         : `<span class="muted">Not identified</span> ${v.blocked ? `<span class="flag bad">link blocked · ${esc(v.blocked)}</span> <button class="btn-unblock" data-unblocklink="${esc(v.link)}" data-node="${esc(n.id)}">Unblock</button>` : `<button class="btn-block" data-blocklink="${esc(v.link)}" data-node="${esc(n.id)}" title="Block this connection until it disconnects">Block link</button>`}`}${v.crawler ? ` <span class="flag">crawler?</span>` : ""}</td>
-      <td class="n">${span(o.now - v.since)}</td><td class="n">${num(v.requests)}</td><td class="n">${size(v.rx)}</td><td class="n">${size(v.tx)}</td></tr>`).join("")}</table>`
+      <td class="n">${stamp(v.since)}<div class="muted small">${span(o.now - v.since)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${size(v.rx)}</td><td class="n">${size(v.tx)}</td></tr>`).join("")}</table>`
     : `<div class="empty">Nobody connected.</div>`;
 }
 
@@ -264,7 +278,7 @@ function nodeCard(n) {
       </div>
     </div>
     <div class="node-foot">
-      <span class="meta">Announced <b>${ago(n.last_announce)}</b> · <b>${n.pages}</b> pages · <b>${n.files}</b> files</span>
+      <span class="meta">Announced <b>${when(n.last_announce)}</b> · <b>${n.pages}</b> pages · <b>${n.files}</b> files</span>
       ${running ? `<button class="btn small" data-act="announce">Announce</button><button class="btn small" data-act="rescan">Rescan pages</button><button class="btn small" data-act="restart">Restart</button><button class="btn small ghost" data-act="stop">Stop</button>` : `<button class="btn small primary" data-act="start">Start</button>`}
       <button class="btn small ghost" data-act="pages">Edit pages</button>
       <button class="btn small ghost" data-act="stats">Stats</button>
@@ -397,7 +411,7 @@ async function loadStats() {
   $("#top-refresh").innerHTML = topTable(st.paths.refresh, st.bytes?.refresh, "Page", "Refreshes");
   const vis = Object.entries(st.visitors || {}).sort((a, b) => b[1].requests - a[1].requests).slice(0, 25);
   $("#top-visitors").innerHTML = vis.length
-    ? `<table><tr><th>LXMF address</th><th class="n">Requests</th><th class="n">Sent</th><th class="n">Last seen</th></tr>${vis.map(([h, v]) => `<tr><td><div class="who-cell">${esc(h)}</div>${v.name ? `<div class="muted small">${esc(v.name)}</div>` : ""}<div class="row-acts">${blockBtn(h, v.name, id, v.identity)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${v.bytes ? size(v.bytes) : "-"}</td><td class="n">${ago(v.last)}</td></tr>`).join("")}</table>`
+    ? `<table><tr><th>LXMF address</th><th class="n">Requests</th><th class="n">Sent</th><th class="n">Last seen</th></tr>${vis.map(([h, v]) => `<tr><td><div class="who-cell">${esc(h)}</div>${v.name ? `<div class="muted small">${esc(v.name)}</div>` : ""}<div class="row-acts">${blockBtn(h, v.name, id, v.identity)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${v.bytes ? size(v.bytes) : "-"}</td><td class="n">${whenCell(v.last)}</td></tr>`).join("")}</table>`
     : `<div class="empty">Nobody has identified yet. Visitors who identify in NomadNet or rBrowser show up here with their LXMF address.</div>`;
 }
 
@@ -609,10 +623,11 @@ const HP_FIELDS = [
   ["node", "enabled", "bool", "Enabled", "Start it with the server"],
   ["node", "announce_at_start", "bool", "Announce at start", ""],
   ["node", "announce_interval", "number", "Announce every", "Minutes, 0 = only at start"],
-  ["honeypot", "traps", "text", "Trap pages", "Comma separated, * at the end = everything below (e.g. /page/trap/*). Opening one gets the visitor blocked"],
-  ["honeypot", "mode", "select:page,silent,tarpit,maze", "Block caught visitors as", "page: blocked page with the reason; silent: dropped; tarpit: no answers; maze: endless small fake pages, the crawler keeps busy here instead of on your real nodes"],
+  ["honeypot", "traps", "text", "Trap pages", "Comma separated, * at the end = everything below (e.g. /page/trap/*). Opening one gets the visitor caught"],
+  ["honeypot", "mode", "select:page,silent,tarpit,maze", "Answer caught visitors with", "page: blocked page with the reason; silent: dropped; tarpit: no answers; maze: endless small fake pages, the crawler keeps busy here instead of on your real nodes"],
   ["honeypot", "maze_per_minute", "number", "Maze: pages per minute", "Per link, so the maze never floods the mesh; above it, no answer"],
   ["honeypot", "reason", "text", "Reason for caught visitors", "Shown with the page mode"],
+  ["honeypot", "to_blocklist", "bool", "Put caught visitors in the blocklist", "Off: an identified crawler stays caught on the honeypots only (the maze or tarpit keeps going, it is listed in Known crawlers). On: it also goes into the Blocklist"],
   ["honeypot", "autoblock", "bool", "Block crawler-like visitors", "Besides the traps: block link hoppers (a new link for every page) and links opening many pages, fast or over an hour"],
   ["honeypot", "hop_links", "number", "Link hopping: links", "An identity opening this many links with one or two pages each... (people keep one link open while they browse)"],
   ["honeypot", "hop_seconds", "number", "Link hopping: within seconds", "...within this many seconds"],
@@ -739,7 +754,7 @@ async function loadBlocked() {
   // the blocklist is always shown, honeypot blocks included
   const rows = Object.entries(blocked).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
   $("#blocked").innerHTML = rows.length
-    ? `<div class="table-wrap"><table><tr><th>LXMF address</th><th>Name</th><th>Reason</th><th>Answer</th><th>Where</th><th class="n">Blocked</th><th></th></tr>${rows.map(([h, b]) => `<tr><td class="who-cell">${esc(h)}</td><td>${esc(b.name || "")}</td><td>${esc(b.reason || "-")}</td><td>${b.scope === "honeypots" ? "as each honeypot is set" : { silent: "silent, dropped", tarpit: "tarpit, no answers", maze: "maze, fake pages" }[b.mode] || "page with the reason"}</td><td>${esc(scopeText(b.scope))}${!b.scope || b.scope === "all" ? "" : " " + widenBtn(h)}${b.node ? `<div class="muted small">${String(b.via || "").startsWith("auto") ? "caught on" : "seen on"} ${esc(nodeName(b.node))}</div>` : ""}</td><td class="n">${ago(b.at)}</td><td class="n"><button class="btn small ghost" data-unblock="${esc(h)}">Unblock</button> ${bhBtn(h)}</td></tr>`).join("")}</table></div>`
+    ? `<div class="table-wrap"><table><tr><th>LXMF address</th><th>Name</th><th>Reason</th><th>Answer</th><th>Where</th><th class="n">Blocked</th><th></th></tr>${rows.map(([h, b]) => `<tr><td class="who-cell">${esc(h)}</td><td>${esc(b.name || "")}</td><td>${esc(b.reason || "-")}</td><td>${b.scope === "honeypots" ? "as each honeypot is set" : { silent: "silent, dropped", tarpit: "tarpit, no answers", maze: "maze, fake pages" }[b.mode] || "page with the reason"}</td><td>${esc(scopeText(b.scope))}${!b.scope || b.scope === "all" ? "" : " " + widenBtn(h)}${b.node ? `<div class="muted small">${String(b.via || "").startsWith("auto") ? "caught on" : "seen on"} ${esc(nodeName(b.node))}</div>` : ""}</td><td class="n">${whenCell(b.at)}</td><td class="n"><button class="btn small ghost" data-unblock="${esc(h)}">Unblock</button> ${bhBtn(h)}</td></tr>`).join("")}</table></div>`
     : `<div class="empty">Nobody blocked. Use Block next to an LXMF address in Overview or Stats.</div>`;
 }
 
@@ -863,7 +878,7 @@ async function loadTrash() {
     ? `<div class="table-wrap"><table><tr><th>Node</th><th>Address</th><th class="n">Removed</th><th class="n">Size</th><th></th></tr>${d.items.map((t) => `<tr>
         <td><span class="nm-cell"${hstyle(hue(t.address))}><span class="ndot"></span>${esc(t.name || t.id)}</span><div class="muted small mono">${esc(t.entry)}</div></td>
         <td class="who-cell">${esc(t.address || "no identity")}</td>
-        <td class="n">${t.removed ? ago(t.removed) : "-"}</td><td class="n">${size(t.size)}</td>
+        <td class="n">${t.removed ? whenCell(t.removed) : "-"}</td><td class="n">${size(t.size)}</td>
         <td class="n"><button class="btn small" data-trash="restore" data-entry="${esc(t.entry)}" ${d.edit ? "" : "disabled"}>Restore</button>
           <button class="btn small ghost danger" data-trash="delete" data-entry="${esc(t.entry)}" ${d.edit ? "" : "disabled"}>Delete forever</button></td></tr>`).join("")}</table></div>`
     : `<div class="empty">No removed nodes.</div>`;
@@ -1034,17 +1049,23 @@ $("#honeypot-btn").addEventListener("click", async () => {
 // ---- honeypot tab ----
 
 let hpFilter = "all";
-// the list redraws every 5 s: remember which page lists are open
+// the list redraws every 5 s, but not while a page list is open: the rows would move under the pointer
 const hpOpen = new Set();
+const hpPaused = () => !!document.querySelector("#hp-peers details.hp-pages[open]");
 document.addEventListener("toggle", (e) => {
   const d = e.target;
   if (!d.matches || !d.matches("details.hp-pages")) return;
   if (d.open) hpOpen.add(d.dataset.k); else hpOpen.delete(d.dataset.k);
+  $("#hp-paused").hidden = !hpPaused();
+  if (!d.open && !hpPaused()) loadHoneypot();
 }, true);
 document.addEventListener("click", (e) => {
   const f = e.target.closest("[data-hpf]");
   if (!f) return;
   hpFilter = f.dataset.hpf;
+  // a new filter is a new list: close the open page lists so it is not paused
+  hpOpen.clear();
+  document.querySelectorAll("#hp-peers details.hp-pages[open]").forEach((d) => { d.open = false; });
   loadHoneypot();
 });
 
@@ -1062,8 +1083,8 @@ async function loadCrawlers() {
       const back = hps.length > 1 || c.visits > 1;
       return `<tr><td><span class="who">${esc(who)}</span>${back ? ` <span class="flag bad">came back</span>` : ""}
           ${c.name ? `<div class="hp-name">${esc(c.name)}</div>` : ""}${c.identity ? `<div class="muted small mono">identity ${esc(c.identity)}</div>` : ""}</td>
-        <td>${hps.map((h) => `<div>${esc(h.name)} <span class="muted small">${num(h.visits)} ${h.visits === 1 ? "visit" : "visits"}, last ${ago(h.last)}</span></div>`).join("")}</td>
-        <td class="n">${num(c.visits)}</td><td class="n">${num(c.caught)}</td><td class="n">${ago(c.first)}</td><td class="n">${ago(c.last)}</td>
+        <td>${hps.map((h) => `<div>${esc(h.name)} <span class="muted small">${num(h.visits)} ${h.visits === 1 ? "visit" : "visits"}, last ${when(h.last)}</span></div>`).join("")}</td>
+        <td class="n">${num(c.visits)}</td><td class="n">${num(c.caught)}</td><td class="n">${whenCell(c.first)}</td><td class="n">${whenCell(c.last)}</td>
         <td class="n">${blocked[who] ? bhBtn(who, c.identity) : blockBtn(who, c.name, "", c.identity)} <button class="btn small ghost" data-forget="${esc(who)}" title="Remove it from this list (not from the blocklist)">Forget</button></td></tr>`;
     }).join("")}</table></div>`
     : `<div class="empty">No crawler caught yet. Identified crawlers the honeypots catch are listed here, and kept.</div>`;
@@ -1072,7 +1093,7 @@ async function loadCrawlers() {
 document.addEventListener("click", async (e) => {
   const f = e.target.closest("[data-forget]");
   if (!f) return;
-  if (!(await ask("Forget crawler", `<p>LXMF <span class="mono">${esc(f.dataset.forget)}</span> leaves the known crawlers. The blocklist and the blackhole stay as they are; if it is caught again it comes back here.</p>`, "Forget", true))) return;
+  if (!(await ask("Forget crawler", `<p>LXMF <span class="mono">${esc(f.dataset.forget)}</span> leaves the known crawlers and the honeypots stop treating it as caught. The blocklist and the blackhole stay as they are; if it is caught again it comes back here.</p>`, "Forget", true))) return;
   await api("/api/honeypot/forget", { who: f.dataset.forget }).then(() => toast("Forgotten"), (err) => toast("Error: " + err.message));
   loadCrawlers();
 });
@@ -1134,15 +1155,19 @@ async function loadHoneypot() {
     for (const x of p.pages || []) if (!g.pages.includes(x) && g.pages.length < 14) g.pages.push(x);
     for (const x of p.tried || []) if (!g.tried.includes(x) && g.tried.length < 14) g.tried.push(x);
     for (const x of p.files || []) if (!g.files.includes(x) && g.files.length < 14) g.files.push(x);
-    if (p.caught && !g.caught) { g.caught = p.caught; g.mode = p.mode; }
+    // the first catch tells why: "caught before" only when nothing else is known
+    if (p.caught && (!g.caught || g.caught === "caught before")) { g.caught = p.caught; g.mode = p.mode; }
     g.identity = g.identity || p.identity;
     groups.set(key, g);
   }
-  const all = [...groups.values()].sort((a, b) => (b.online - a.online) || (b.last - a.last));
+  // newest arrival first: a row never changes place when its peer does something
+  const all = [...groups.values()].sort((a, b) => b.first - a.first);
   for (const p of all) {
     const b = p.who && blocked[p.who];
-    p.state = p.caught ? "caught" : b ? "blocked" : p.online ? "online" : "browsed";
+    p.state = p.caught && p.caught !== "blocked by hand" ? "caught" : b || p.mode ? "blocked" : p.online ? "online" : "browsed";
   }
+  $("#hp-paused").hidden = !hpPaused();
+  if (hpPaused()) return renderHpForm();
   const counts = { all: all.length, bad: all.filter((p) => p.state === "caught" || p.state === "blocked").length,
                    online: all.filter((p) => p.online).length, id: all.filter((p) => p.who).length, anon: all.filter((p) => !p.who).length };
   $("#hp-filter").innerHTML = [["all", "All"], ["bad", "Caught or blocked"], ["online", "Online"], ["id", "Identified"], ["anon", "Not identified"]]
@@ -1151,20 +1176,23 @@ async function loadHoneypot() {
     || (hpFilter === "online" && p.online) || (hpFilter === "id" && p.who) || (hpFilter === "anon" && !p.who));
   const chips = (list, cls) => list.map((x) => `<span class="chip ${cls}">${esc(x.replace(/^\/(page|file)\//, ""))}</span>`).join("");
   const many = nodes.length > 1;
-  $("#hp-peers").innerHTML = rows.length ? rows.map((p) => {
+  $("#hp-peers").innerHTML = rows.length ? `<div class="hp-row hp-head"><div>Status</div><div>Peer and what it did</div><div class="hp-nums">Requests</div><div></div></div>` + rows.map((p) => {
     const b = p.who && blocked[p.who];
     const why = p.caught ? `${p.caught}${p.mode ? " · " + p.mode : ""}` : b ? `${b.reason || "blocked"} · ${blockMode(b, p.node)}` : "";
     const actions = p.who ? (b ? `${!b.scope || b.scope === "all" ? "" : widenBtn(p.who)} <button class="btn-unblock" data-unblock="${esc(p.who)}">Unblock</button> ${bhBtn(p.who, p.identity)}`
       : `<button class="btn-block" data-block="${esc(p.who)}" data-name="${esc(p.name || "")}" data-node="${esc(p.node)}">Block</button> ${bhBtn(p.who, p.identity)}`) : linkBtns(p);
-    const meta = [p.identity ? `identity ${esc(p.identity)}` : "", many ? esc(p.node_name) : "", `first ${ago(p.first)}`,
+    const meta = [p.identity ? `identity ${esc(p.identity)}` : "", many ? esc(p.node_name) : "",
                   b && b.scope && b.scope !== "all" ? `blocked on ${esc(scopeText(b.scope))}` : ""].filter(Boolean).join(" · ");
     return `<div class="hp-row">
-      <div class="hp-state"><span class="badge ${p.state}">${p.state}</span><div class="muted small">${p.online ? "now" : ago(p.last)}</div></div>
+      <div class="hp-state"><span class="badge ${p.state}">${p.state}</span>
+        <div class="muted small">arrived ${stamp(p.first)}</div>
+        <div class="muted small">${p.online ? "online now" : `left ${stamp(p.last)}`}</div>
+        <div class="muted small">${ago(p.online ? p.first : p.last)}</div></div>
       <div class="hp-who">
         <div>${p.who ? `<span class="who">${esc(p.who)}</span>${p.name ? ` <span class="hp-name">${esc(p.name)}</span>` : ""}` : `<span class="muted">Not identified</span> <span class="who muted">link ${esc(p.link)}</span>`}</div>
         <div class="muted small">${meta}</div>
         ${why ? `<div class="small bad-text">${esc(why)}</div>` : ""}
-        ${p.maze ? `<div class="small maze-text">In the maze: ${num(p.maze)} fake ${p.maze === 1 ? "page" : "pages"} in ${span(p.maze_time)}, ${size(p.maze_bytes)} · last ${p.online && now - p.maze_last < 90 ? "now" : ago(p.maze_last)}</div>` : ""}
+        ${p.maze ? `<div class="small maze-text">In the maze: ${num(p.maze)} fake ${p.maze === 1 ? "page" : "pages"} in ${span(p.maze_time)}, ${size(p.maze_bytes)} · last ${p.online && now - p.maze_last < 90 ? "now" : when(p.maze_last)}</div>` : ""}
         ${p.pages.length || p.tried.length || p.files.length ? `<details class="hp-pages" data-k="${esc(p.who || p.link)}"${hpOpen.has(p.who || p.link) ? " open" : ""}><summary>${p.pages.length} ${p.pages.length === 1 ? "page" : "pages"}${p.files.length ? `, ${p.files.length} ${p.files.length === 1 ? "file" : "files"} downloaded` : ""}${p.tried.length ? `, ${p.tried.length} blocked` : ""}${!p.pages.length && p.tried.length && p.state === "blocked" ? ` <span class="bad-text">(Already in blocklist: request blocked!)</span>` : ""}</summary>${chips(p.pages, "")}${chips(p.files, "file")}${chips(p.tried, "bad")}</details>` : ""}
       </div>
       <div class="hp-nums"><b>${num(p.requests)}</b> ${p.requests === 1 ? "request" : "requests"}${p.tries ? `<div class="bad-text small">+${num(p.tries)} blocked</div>` : ""}<div class="muted small">${num(p.links)} ${p.links === 1 ? "link" : "links"}</div></div>

@@ -337,6 +337,10 @@ class Server:
                                                                                      "first": at, "last": at, "visits": 1}}}
         return self._crawlers
 
+    def is_caught(self, who):
+        c = self.crawlers().get(who) if who else None
+        return bool(c and c.get("caught"))
+
     def forget_crawler(self, who):
         with self.lock:
             if self.crawlers().pop(str(who), None) is None:
