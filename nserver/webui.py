@@ -277,6 +277,9 @@ class Handler(BaseHTTPRequestHandler):
                     if n.is_honeypot:
                         for rec in n.live_peers() + list(reversed(n.peers())):
                             row = dict(rec, node=n.id, node_name=n.name, node_address=n.address)
+                            if "trap" not in row and not row.get("tries") and row.get("tried"):
+                                # older records kept the trap page with the blocked requests
+                                row["trap"], row["tried"] = row["tried"], []
                             if not row.get("name") and row.get("identity"):
                                 row["name"] = peer_name(row["identity"])
                             out.append(row)

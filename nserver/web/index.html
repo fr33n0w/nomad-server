@@ -189,8 +189,8 @@
       <div id="hp-nodes"></div>
       <div id="hp-counters"></div>
       <div class="panel">
-        <div class="panel-head"><h2>Honeypot peer connections</h2><span class="muted small">Kept on disk: one row per peer, newest arrival first. <span id="hp-paused" hidden>Updates paused while a page list is open.</span></span><button id="hp-clear" class="btn small ghost danger">Clear history</button></div>
-        <div class="seg hp-filter" id="hp-filter" role="group" aria-label="Show"></div>
+        <div class="panel-head"><h2>Honeypot peer connections</h2><span class="muted small">Kept on disk: one row per peer, in order of arrival. <span id="hp-paused" hidden>Updates paused while a page list is open.</span></span><button id="hp-clear" class="btn small ghost danger">Clear history</button></div>
+        <div class="hp-tools"><div class="seg" id="hp-filter" role="group" aria-label="Show"></div><div class="seg" id="hp-order" role="group" aria-label="Order"></div></div>
         <div id="hp-peers"></div>
       </div>
       <div class="panel">

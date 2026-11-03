@@ -293,7 +293,7 @@ I peer che si identificano compaiono con l'indirizzo LXMF e, se ne hanno annunci
 
 ![Honeypot](docs/honeypot.png)
 
-Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto di piccole pagine finte, con un limite di velocità così la mesh non si intasa, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
+Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto che non finisce mai e non rifiuta mai una richiesta (pagine finte, file finti da scaricare o entrambi), così il crawler gira finché non si stacca, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
 
 ## Docker
 
@@ -307,6 +307,14 @@ La UI è sulla porta 8484, tutto il resto in `nomad-data/`: impostazioni, nodi, 
 ## Risorse
 
 Su un server Debian con tre nodi frequentati e un plugin, il processo usa circa 95 MB: circa 36 MB sono Python e Reticulum, il resto nodi, contatori e i dati del plugin. Un server vuoto usa circa 47 MB.
+
+## Novità
+
+- Risposta maze: pagine, file o entrambi.
+- Il maze non rifiuta mai, niente limiti.
+- Pagine trappola indicate come trappole, non bloccate.
+- Lista peer: prima i nuovi o i vecchi, righe ferme.
+- Fino a 60 pagine elencate per connessione.
 
 ## Ringraziamenti
 

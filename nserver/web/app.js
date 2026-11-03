@@ -624,8 +624,7 @@ const HP_FIELDS = [
   ["node", "announce_at_start", "bool", "Announce at start", ""],
   ["node", "announce_interval", "number", "Announce every", "Minutes, 0 = only at start"],
   ["honeypot", "traps", "text", "Trap pages", "Comma separated, * at the end = everything below (e.g. /page/trap/*). Opening one gets the visitor caught"],
-  ["honeypot", "mode", "select:page,silent,tarpit,maze", "Answer caught visitors with", "page: blocked page with the reason; silent: dropped; tarpit: no answers; maze: endless small fake pages, the crawler keeps busy here instead of on your real nodes"],
-  ["honeypot", "maze_per_minute", "number", "Maze: pages per minute", "Per link, so the maze never floods the mesh; above it, no answer"],
+  ["honeypot", "mode", "select:page,silent,tarpit,maze=maze pages,maze_files=maze files,maze_both=maze both", "Answer caught visitors with", "page: blocked page with the reason; silent: dropped; tarpit: no answers; maze: endless small fake pages, fake file downloads or both, never refused: the crawler keeps busy here instead of on your real nodes"],
   ["honeypot", "reason", "text", "Reason for caught visitors", "Shown with the page mode"],
   ["honeypot", "to_blocklist", "bool", "Put caught visitors in the blocklist", "Off: an identified crawler stays caught on the honeypots only (the maze or tarpit keeps going, it is listed in Known crawlers). On: it also goes into the Blocklist"],
   ["honeypot", "autoblock", "bool", "Block crawler-like visitors", "Besides the traps: block link hoppers (a new link for every page) and links opening many pages, fast or over an hour"],
@@ -656,7 +655,7 @@ function formHtml(fields, values, prefix) {
     // data-orig: the value drawn here, so a save sends only what was changed in the form
     const orig = `data-orig="${esc(type === "bool" ? (on ? "yes" : "no") : String(v).trim())}"`;
     const input = type.startsWith("select:")
-      ? `<select id="${id}" ${orig}>${type.slice(7).split(",").map((o) => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
+      ? `<select id="${id}" ${orig}>${type.slice(7).split(",").map((o) => { const [val, label] = o.split("="); return `<option value="${esc(val)}" ${val === v ? "selected" : ""}>${esc(label || val)}</option>`; }).join("")}</select>`
       : type === "bool"
       ? `<input id="${id}" type="checkbox" ${orig} ${on ? "checked" : ""}>`
       : `<input id="${id}" type="${type}" ${orig} value="${esc(v)}" ${type === "number" ? 'min="0"' : ""}>`;
@@ -1050,6 +1049,19 @@ $("#honeypot-btn").addEventListener("click", async () => {
 // ---- honeypot tab ----
 
 let hpFilter = "all";
+let hpOrder = "newest";
+// the server keeps up to 60 distinct pages per connection
+const HP_PAGES = 60;
+try { hpOrder = localStorage.getItem("ns-hp-order") === "oldest" ? "oldest" : "newest"; } catch (e) { /* private mode */ }
+document.addEventListener("click", (e) => {
+  const o = e.target.closest("[data-hpo]");
+  if (!o || o.dataset.hpo === hpOrder) return;
+  hpOrder = o.dataset.hpo;
+  try { localStorage.setItem("ns-hp-order", hpOrder); } catch (err) { /* private mode */ }
+  hpOpen.clear();
+  document.querySelectorAll("#hp-peers details.hp-pages[open]").forEach((d) => { d.open = false; });
+  loadHoneypot();
+});
 // the list redraws every 5 s, but not while a page list is open: the rows would move under the pointer
 const hpOpen = new Set();
 const hpPaused = () => !!document.querySelector("#hp-peers details.hp-pages[open]");
@@ -1106,7 +1118,7 @@ async function loadHoneypot() {
   const autoBlocked = Object.values(blocked).filter((b) => String(b.via || "").startsWith("auto")).length;
   let peers = [];
   try {
-    peers = (await api("/api/honeypot/peers")).items || [];
+    peers = (await api("/api/honeypot/peers?limit=5000")).items || [];
   } catch (e) { /* login */ }
   const identified = new Set(peers.filter((p) => p.who).map((p) => p.who)).size;
   const mazed = peers.filter((p) => p.maze);
@@ -1118,7 +1130,8 @@ async function loadHoneypot() {
     [num(identified), "identified peers"],
     [num(caught), "caught", "amber"],
     [num(autoBlocked), "blocked by honeypots"],
-    [num(mazed.reduce((a, p) => a + p.maze, 0)), "fake maze pages served"],
+    [num(mazed.reduce((a, p) => a + p.maze - (p.maze_files || 0), 0)), "fake maze pages served"],
+    [num(mazed.reduce((a, p) => a + (p.maze_files || 0), 0)), "fake maze files served"],
     [mazed.length ? span(mazeTime) : "-", "crawler time lost in the maze"],
   ]);
   $("#hp-nodes").innerHTML = nodes.length ? nodes.map(nodeCard).join("")
@@ -1139,13 +1152,14 @@ async function loadHoneypot() {
   const groups = new Map();
   for (const p of peers) {
     const key = p.who ? `${p.node}|${p.who}` : `${p.node}|link ${p.link}|${p.since}`;
-    const g = groups.get(key) || { ...p, links: 0, requests: 0, tries: 0, first: p.since, last: 0, online: false, pages: [], tried: [], files: [], caught: "", mode: "",
-                                   maze: 0, maze_bytes: 0, maze_time: 0, maze_last: 0 };
+    const g = groups.get(key) || { ...p, key, links: 0, requests: 0, tries: 0, first: p.since, last: 0, online: false, pages: [], tried: [], trap: [], files: [], caught: "", mode: "",
+                                   maze: 0, maze_files: 0, maze_bytes: 0, maze_time: 0, maze_last: 0 };
     g.links += 1;
     g.requests += p.requests || 0;
     g.tries += p.tries || 0;
     if (p.maze) {
       g.maze += p.maze;
+      g.maze_files += p.maze_files || 0;
       g.maze_bytes += p.maze_bytes || 0;
       g.maze_time += p.maze_last - p.maze_first;
       g.maze_last = Math.max(g.maze_last, p.maze_last);
@@ -1153,16 +1167,18 @@ async function loadHoneypot() {
     g.first = Math.min(g.first, p.since);
     g.last = Math.max(g.last, p.until === null ? now : p.until);
     g.online = g.online || p.until === null;
-    for (const x of p.pages || []) if (!g.pages.includes(x) && g.pages.length < 14) g.pages.push(x);
+    for (const x of p.pages || []) if (!g.pages.includes(x) && g.pages.length < HP_PAGES) g.pages.push(x);
     for (const x of p.tried || []) if (!g.tried.includes(x) && g.tried.length < 14) g.tried.push(x);
+    for (const x of p.trap || []) if (!g.trap.includes(x) && g.trap.length < 14) g.trap.push(x);
     for (const x of p.files || []) if (!g.files.includes(x) && g.files.length < 14) g.files.push(x);
     // the first catch tells why: "caught before" only when nothing else is known
     if (p.caught && (!g.caught || g.caught === "caught before")) { g.caught = p.caught; g.mode = p.mode; }
     g.identity = g.identity || p.identity;
     groups.set(key, g);
   }
-  // newest arrival first: a row never changes place when its peer does something
-  const all = [...groups.values()].sort((a, b) => b.first - a.first);
+  // by arrival only: a row never changes place when its peer does something
+  const dir = hpOrder === "oldest" ? 1 : -1;
+  const all = [...groups.values()].sort((a, b) => dir * (a.first - b.first) || (a.key < b.key ? -1 : 1));
   for (const p of all) {
     const b = p.who && blocked[p.who];
     p.state = p.caught && p.caught !== "blocked by hand" ? "caught" : b || p.mode ? "blocked" : p.online ? "online" : "browsed";
@@ -1173,10 +1189,13 @@ async function loadHoneypot() {
                    online: all.filter((p) => p.online).length, id: all.filter((p) => p.who).length, anon: all.filter((p) => !p.who).length };
   $("#hp-filter").innerHTML = [["all", "All"], ["bad", "Caught or blocked"], ["online", "Online"], ["id", "Identified"], ["anon", "Not identified"]]
     .map(([k, l]) => `<button data-hpf="${k}" class="${hpFilter === k ? "active" : ""}">${l} <span class="muted">${counts[k]}</span></button>`).join("");
+  $("#hp-order").innerHTML = [["newest", "Newest first"], ["oldest", "Oldest first"]]
+    .map(([k, l]) => `<button data-hpo="${k}" class="${hpOrder === k ? "active" : ""}">${l}</button>`).join("");
   const rows = all.filter((p) => hpFilter === "all" || (hpFilter === "bad" && (p.state === "caught" || p.state === "blocked"))
     || (hpFilter === "online" && p.online) || (hpFilter === "id" && p.who) || (hpFilter === "anon" && !p.who));
   const chips = (list, cls) => list.map((x) => `<span class="chip ${cls}">${esc(x.replace(/^\/(page|file)\//, ""))}</span>`).join("");
   const many = nodes.length > 1;
+  const anchor = hpAnchor();
   $("#hp-peers").innerHTML = rows.length ? `<div class="hp-row hp-head"><div>Status</div><div>Peer and what it did</div><div class="hp-nums">Requests</div><div></div></div>` + rows.map((p) => {
     const b = p.who && blocked[p.who];
     const why = p.caught ? `${p.caught}${p.mode ? " · " + p.mode : ""}` : b ? `${b.reason || "blocked"} · ${blockMode(b, p.node)}` : "";
@@ -1184,7 +1203,7 @@ async function loadHoneypot() {
       : `<button class="btn-block" data-block="${esc(p.who)}" data-name="${esc(p.name || "")}" data-node="${esc(p.node)}">Block</button> ${bhBtn(p.who, p.identity)}`) : linkBtns(p);
     const meta = [p.identity ? `identity ${esc(p.identity)}` : "", many ? esc(p.node_name) : "",
                   b && b.scope && b.scope !== "all" ? `blocked on ${esc(scopeText(b.scope))}` : ""].filter(Boolean).join(" · ");
-    return `<div class="hp-row">
+    return `<div class="hp-row" data-k="${esc(p.key)}">
       <div class="hp-state"><span class="badge ${p.state}">${p.state}</span>
         <div class="muted small">arrived ${stamp(p.first)}</div>
         <div class="muted small">${p.online ? "online now" : `left ${stamp(p.last)}`}</div>
@@ -1193,14 +1212,34 @@ async function loadHoneypot() {
         <div>${p.who ? `<span class="who">${esc(p.who)}</span>${p.name ? ` <span class="hp-name">${esc(p.name)}</span>` : ""}` : `<span class="muted">Not identified</span> <span class="who muted">link ${esc(p.link)}</span>`}</div>
         <div class="muted small">${meta}</div>
         ${why ? `<div class="small bad-text">${esc(why)}</div>` : ""}
-        ${p.maze ? `<div class="small maze-text">In the maze: ${num(p.maze)} fake ${p.maze === 1 ? "page" : "pages"} in ${span(p.maze_time)}, ${size(p.maze_bytes)} · last ${p.online && now - p.maze_last < 90 ? "now" : when(p.maze_last)}</div>` : ""}
-        ${p.pages.length || p.tried.length || p.files.length ? `<details class="hp-pages" data-k="${esc(p.who || p.link)}"${hpOpen.has(p.who || p.link) ? " open" : ""}><summary>${p.pages.length} ${p.pages.length === 1 ? "page" : "pages"}${p.files.length ? `, ${p.files.length} ${p.files.length === 1 ? "file" : "files"} downloaded` : ""}${p.tried.length ? `, ${p.tried.length} blocked` : ""}${!p.pages.length && p.tried.length && p.state === "blocked" ? ` <span class="bad-text">(Already in blocklist: request blocked!)</span>` : ""}</summary>${chips(p.pages, "")}${chips(p.files, "file")}${chips(p.tried, "bad")}</details>` : ""}
+        ${p.maze ? `<div class="small maze-text">In the maze: ${mazeWhat(p)} in ${span(p.maze_time)}, ${size(p.maze_bytes)} · last ${p.online && now - p.maze_last < 90 ? "now" : when(p.maze_last)}</div>` : ""}
+        ${p.pages.length || p.tried.length || p.trap.length || p.files.length ? `<details class="hp-pages" data-k="${esc(p.who || p.link)}"${hpOpen.has(p.who || p.link) ? " open" : ""}><summary>${p.pages.length}${p.pages.length >= HP_PAGES ? "+" : ""} ${p.pages.length === 1 ? "page" : "pages"}${p.trap.length ? `, ${p.trap.length} ${p.trap.length === 1 ? "trap" : "traps"}` : ""}${p.files.length ? `, ${p.files.length} ${p.files.length === 1 ? "file" : "files"} downloaded` : ""}${p.tried.length ? `, ${p.tried.length} blocked` : ""}${!p.pages.length && p.tried.length && p.state === "blocked" ? ` <span class="bad-text">(Already in blocklist: request blocked!)</span>` : ""}</summary>${chips(p.pages, "")}${chips(p.trap, "trap")}${chips(p.files, "file")}${chips(p.tried, "bad")}</details>` : ""}
       </div>
       <div class="hp-nums"><b>${num(p.requests)}</b> ${p.requests === 1 ? "request" : "requests"}${p.tries ? `<div class="bad-text small">+${num(p.tries)} blocked</div>` : ""}<div class="muted small">${num(p.links)} ${p.links === 1 ? "link" : "links"}</div></div>
       <div class="hp-act">${actions}</div>
     </div>`;
   }).join("") : `<div class="empty">${all.length ? "Nothing with this filter." : "Nobody has reached a honeypot yet."}</div>`;
+  hpRestore(anchor);
   renderHpForm();
+}
+
+// the row at the top of the screen stays where it is when rows are added or grow above it
+function hpAnchor() {
+  for (const r of document.querySelectorAll("#hp-peers .hp-row[data-k]")) {
+    const top = r.getBoundingClientRect().top;
+    if (top >= 0) return { k: r.dataset.k, top };
+  }
+  return null;
+}
+function hpRestore(a) {
+  if (!a) return;
+  const r = [...document.querySelectorAll("#hp-peers .hp-row[data-k]")].find((x) => x.dataset.k === a.k);
+  if (r) window.scrollBy(0, r.getBoundingClientRect().top - a.top);
+}
+
+function mazeWhat(p) {
+  const files = p.maze_files || 0, pages = p.maze - files;
+  return [pages ? `${num(pages)} fake ${pages === 1 ? "page" : "pages"}` : "", files ? `${num(files)} fake ${files === 1 ? "file" : "files"}` : ""].filter(Boolean).join(", ");
 }
 
 // a link can be blocked only while it is connected: once closed, it comes back with a new id

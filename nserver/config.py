@@ -54,7 +54,6 @@ NODE_DEFAULTS = {
         "hop_seconds": "7200",
         "long_pages": "60",
         "long_seconds": "3600",
-        "maze_per_minute": "30",
     },
     "footer": {
         "visits": "yes",
@@ -119,8 +118,9 @@ show_on_pages = yes
 # Trap pages, comma separated, * at the end = everything below (e.g. /page/trap/*).
 # Whoever opens one is caught: by LXMF address if identified, for the rest of its link if not.
 traps =
-# how caught visitors are answered: page (with the reason), silent, tarpit, or
-# maze (endless small fake pages, at most maze_per_minute per link)
+# how caught visitors are answered: page (with the reason), silent, tarpit, or an endless
+# maze, never refused and with no rate limit: maze (fake pages), maze_files (fake file
+# downloads) or maze_both
 mode = tarpit
 reason = Crawler
 # yes = identified visitors caught here also go into the blocklist;
@@ -138,7 +138,6 @@ hop_links = 6
 hop_seconds = 7200
 long_pages = 60
 long_seconds = 3600
-maze_per_minute = 30
 
 [footer]
 # Lines added at the bottom of .mu pages (not to partials loaded inside other pages)

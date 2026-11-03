@@ -93,13 +93,19 @@ def python_exe():
 
 
 MAZE_PATH = "/page/trap/maze.mu"
+MAZE_FILE = "/file/trap/maze"
+# honeypot answer modes that serve the maze: fake pages, fake files, or both
+MAZE_MODES = ("maze", "maze_files", "maze_both")
+MAZE_EXTS = ("txt", "log", "csv", "cfg", "json")
+# distinct pages kept per honeypot peer record
+PAGES_KEPT = 60
 
 
 def maze_of(entry):
     """How long a link has been walking the maze: fake pages, bytes, first and last."""
     if not entry.get("maze"):
         return {}
-    return {"maze": entry["maze"], "maze_bytes": entry.get("maze_bytes", 0),
+    return {"maze": entry["maze"], "maze_files": entry.get("maze_files", 0), "maze_bytes": entry.get("maze_bytes", 0),
             "maze_first": entry["maze_first"], "maze_last": entry["maze_last"]}
 MAZE_WORDS = ("relay mesh antenna lora transport beacon gateway router node packet link announce path "
               "battery solar repeater channel frequency config backup mirror index notes draft archive").split()
@@ -413,6 +419,8 @@ class Node:
                 pages.add(MAZE_PATH)
             files = set(self.scan(self.files_path, "/file"))
             self.pages_count, self.files_count = len(pages), len(files)
+            if self.is_honeypot:
+                files.add(MAZE_FILE)
             if "/page/index.mu" not in pages:
                 pages.add("/page/index.mu")
             want = pages | files | {"/media"}
@@ -471,7 +479,8 @@ class Node:
 
     def rate_ok(self, link_id):
         limit = self.cfg.getint("limits", "requests_per_minute")
-        if limit <= 0 or link_id is None:
+        # a maze honeypot never refuses: crawlers walk it until they disconnect
+        if limit <= 0 or link_id is None or (self.is_honeypot and self.cfg.get("honeypot", "mode") in MAZE_MODES):
             return True
         now = time.time()
         q = self.rate.setdefault(link_id, collections.deque())
@@ -582,7 +591,7 @@ class Node:
         entry = self.links.get(link_id)
         why = self.gate(entry, path)
         if why:
-            return self.gate_answer(why, entry)
+            return self.gate_answer(why, entry, data, file=True)
         try:
             size = os.path.getsize(file_path)
             handle = open(file_path, "rb")
@@ -688,12 +697,14 @@ class Node:
             self.log("Disconnected link %s: LXMF %s is blocked" % (short(link.link_id), who_hex), "warn")
             link.teardown()
 
-    def gate_answer(self, why, entry, data=None):
+    def gate_answer(self, why, entry, data=None, file=False):
         """What a gated visitor gets: nothing (silent, tarpit), the identify page,
-        the blocked page or, on a honeypot, an endless maze of fake pages."""
+        the blocked page or, on a honeypot, an endless maze of fake pages and files."""
         if why == "maze":
             if not self.is_honeypot or data is False:
                 why = "tarpit"
+            elif file:
+                return self.maze_file(entry, data)
             else:
                 return self.maze_page(entry, data)
         if why in ("silent", "tarpit"):
@@ -737,33 +748,66 @@ class Node:
             found[0].pop(k, None)
         self.log("Link %s unblocked by hand" % link_short)
 
-    def maze_page(self, entry, data):
-        """A fake archive page with links to more fake pages, all on one registered
-        path (maze.mu with a different id each): a crawler never runs out of them.
-        Small, and limited per link and minute so the mesh is never flooded."""
+    def maze_style(self):
+        mode = self.cfg.get("honeypot", "mode")
+        return mode if mode in MAZE_MODES else "maze"
+
+    def maze_rng(self, entry, data, kind):
+        """Counts one maze answer and gives the random source for it: the same id, the same content."""
         now = time.time()
-        q = entry.setdefault("maze_times", collections.deque())
-        while q and q[0] < now - 60:
-            q.popleft()
-        if len(q) >= max(1, self.cfg.getint("honeypot", "maze_per_minute")):
-            return None
-        q.append(now)
+        if not entry.get("maze"):
+            entry.setdefault("maze_first", now)
+            self.log("Maze: %s gets endless fake %s" % (("LXMF " + entry["who"]) if entry.get("who") else "link " + short(entry["link"].link_id),
+                                                        {"maze": "pages", "maze_files": "files"}.get(self.maze_style(), "pages and files")), "warn")
         entry["maze"] = entry.get("maze", 0) + 1
-        entry.setdefault("maze_first", now)
+        if kind == "file":
+            entry["maze_files"] = entry.get("maze_files", 0) + 1
         entry["maze_last"] = now
+        entry["requests"] += 1
         self.stats.bump("maze")
-        if entry["maze"] == 1:
-            self.log("Maze: %s gets endless fake pages" % (("LXMF " + entry["who"]) if entry.get("who") else "link " + short(entry["link"].link_id)), "warn")
         seed = str((data or {}).get("var_id", "")) if isinstance(data, dict) else ""
-        rng = random.Random(seed or "%s-%d" % (entry.get("who") or short(entry["link"].link_id), entry["maze"]))
+        return random.Random("%s-%s" % (kind, seed) if seed else "%s-%s-%d" % (kind, entry.get("who") or short(entry["link"].link_id), entry["maze"]))
+
+    def maze_page(self, entry, data):
+        """A fake archive page with links to more fake pages and/or fake files, all on
+        one registered path each (with a different id): a crawler never runs out of them.
+        Small, and never refused: the crawler keeps walking until it disconnects."""
+        rng = self.maze_rng(entry, data, "page")
         word = lambda: rng.choice(MAZE_WORDS)
         title = " ".join(word() for _ in range(rng.randint(2, 4))).capitalize()
         text = [" ".join(word() for _ in range(rng.randint(8, 14))).capitalize() + "." for _ in range(2)]
+        n_pages, n_files = {"maze": (8, 0), "maze_files": (2, 6), "maze_both": (5, 4)}[self.maze_style()]
         links = ["`[%s`:%s`id=%d]" % (" ".join(word() for _ in range(2)).capitalize(), MAZE_PATH, rng.randint(10**6, 10**9))
-                 for _ in range(8)]
+                 for _ in range(n_pages)]
+        for _ in range(n_files):
+            fid = rng.randint(10**6, 10**9)
+            name, size = self.maze_file_name(fid)
+            links.append("`[%s`:%s`id=%d]  `F888%d KB`f" % (name, MAZE_FILE, fid, size // 1024))
         page = (">%s\n\n%s\n\n%s\n" % (title, "\n".join(text), "\n".join(links))).encode("utf-8")
         entry["maze_bytes"] = entry.get("maze_bytes", 0) + len(page)
         return page
+
+    @staticmethod
+    def maze_file_name(fid):
+        rng = random.Random("name-%d" % fid)
+        name = "%s-%s-%d.%s" % (rng.choice(MAZE_WORDS), rng.choice(MAZE_WORDS), rng.randint(1, 99), rng.choice(MAZE_EXTS))
+        return name, rng.randint(2, 12) * 1024
+
+    def maze_file(self, entry, data):
+        """A small fake file for a maze file link: name and size as the page listed them."""
+        from .honeypot import WARNING
+        rng = self.maze_rng(entry, data, "file")
+        try:
+            fid = int((data or {}).get("var_id", ""))
+        except (TypeError, ValueError, AttributeError):
+            fid = rng.randint(10**6, 10**9)
+        name, size = self.maze_file_name(fid)
+        lines = [WARNING]
+        while sum(len(x) + 1 for x in lines) < size:
+            lines.append(" ".join(rng.choice(MAZE_WORDS) for _ in range(rng.randint(6, 12))))
+        body = "\n".join(lines).encode("utf-8")[:size]
+        entry["maze_bytes"] = entry.get("maze_bytes", 0) + len(body)
+        return [name, body]
 
     def drop_visitor(self, who):
         """Disconnects every link of a visitor that was just blocked."""
@@ -790,8 +834,8 @@ class Node:
             if entry:
                 entry["trapped"], entry["caught_why"] = mode, "caught before"
                 entry["trap_reason"] = self.cfg.get("honeypot", "reason") or "Crawler"
-        if mode == "maze" and self.is_honeypot:
-            # not refused: it gets fake pages, counted by maze_page
+        if mode in MAZE_MODES and self.is_honeypot:
+            # not refused: it gets fake pages or files, counted by maze_rng
             return "maze"
         if mode:
             self.stats.bump("blocked")
@@ -801,9 +845,12 @@ class Node:
                 entry.setdefault("tried", [])
                 if path not in entry["tried"] and len(entry["tried"]) < 12:
                     entry["tried"].append(path)
-            return {"silent": "silent", "tarpit": "tarpit", "maze": "maze"}.get(mode, "blocked")
+            return "maze" if mode in MAZE_MODES else {"silent": "silent", "tarpit": "tarpit"}.get(mode, "blocked")
         if entry and self.is_trap(path):
-            entry.setdefault("tried", []).append(path)
+            # the trap page is answered as the honeypot mode says, so it is not a blocked request
+            trap = entry.setdefault("trap", [])
+            if path not in trap and len(trap) < 12:
+                trap.append(path)
             return self.catch(entry, "opened the trap page %s" % path)
         if self.cfg.getbool("node", "require_identify") and not who:
             self.stats.bump("unidentified")
@@ -843,8 +890,8 @@ class Node:
         rec = {"since": entry["since"], "until": until, "link": short(entry["link"].link_id),
                "who": entry.get("who"), "identity": entry.get("identity", ""), "name": entry.get("name", ""),
                "requests": entry["requests"], "bytes": entry["bytes"],
-               "pages": list(dict.fromkeys(p for _, p in entry["recent"]))[:12],
-               "tries": entry.get("tries", 0), "tried": entry.get("tried", [])[:12], "files": entry.get("files", []),
+               "pages": list(dict.fromkeys(p for _, p in entry["recent"]))[:PAGES_KEPT],
+               "tries": entry.get("tries", 0), "tried": entry.get("tried", [])[:12], "trap": entry.get("trap", []), "files": entry.get("files", []),
                "caught": entry.get("caught_why", ""), "mode": entry.get("trapped", ""), **maze_of(entry)}
         with self.lock:
             peers = self.peers()
@@ -865,8 +912,8 @@ class Node:
         with self.lock:
             return [{"since": e["since"], "until": None, "link": short(h), "who": e.get("who"),
                      "identity": e.get("identity", ""), "name": e.get("name", ""), "requests": e["requests"],
-                     "bytes": e["bytes"], "pages": list(dict.fromkeys(p for _, p in e["recent"]))[:12],
-                     "tries": e.get("tries", 0), "tried": e.get("tried", [])[:12], "files": e.get("files", []),
+                     "bytes": e["bytes"], "pages": list(dict.fromkeys(p for _, p in e["recent"]))[:PAGES_KEPT],
+                     "tries": e.get("tries", 0), "tried": e.get("tried", [])[:12], "trap": e.get("trap", []), "files": e.get("files", []),
                      "caught": e.get("caught_why", ""), "mode": e.get("trapped", ""), "online": round(now - e["since"]),
                      **maze_of(e)}
                     for h, e in self.links.items()]
@@ -886,6 +933,8 @@ class Node:
         # traps and autoblock belong to honeypot nodes only: normal nodes stay normal
         if not self.is_honeypot:
             return False
+        if path in (MAZE_PATH, MAZE_FILE):
+            return True
         for t in self.cfg.get("honeypot", "traps").split(","):
             t = t.strip()
             if t and (path == t or (t.endswith("*") and path.startswith(t[:-1]))):
@@ -896,7 +945,7 @@ class Node:
         """A trap or the crawler detector caught this link: block the LXMF address
         if it identified, otherwise only this link (it has nothing else to block)."""
         mode = self.cfg.get("honeypot", "mode") or "tarpit"
-        mode = mode if mode in ("page", "silent", "tarpit", "maze") else "tarpit"
+        mode = mode if mode in ("page", "silent", "tarpit") + MAZE_MODES else "tarpit"
         reason = self.cfg.get("honeypot", "reason") or "Crawler"
         self.stats.bump("trapped")
         entry["trapped"], entry["trap_reason"], entry["caught_why"] = mode, reason, why
@@ -910,7 +959,7 @@ class Node:
             self.server.crawler_seen(entry["who"], self, entry.get("name", ""), entry.get("identity", ""), caught=True)
         else:
             self.log("Caught link %s (%s): %s for the rest of the link" % (short(entry["link"].link_id), why, mode), "warn")
-        return {"silent": "silent", "tarpit": "tarpit", "maze": "maze"}.get(mode, "blocked")
+        return "maze" if mode in MAZE_MODES else {"silent": "silent", "tarpit": "tarpit"}.get(mode, "blocked")
 
     def link_closed(self, link):
         with self.lock:

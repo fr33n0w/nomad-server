@@ -293,7 +293,7 @@ Peers that identify are listed with their LXMF address and, when they announced 
 
 ![Honeypot](docs/honeypot.png)
 
-Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze of small fake pages, rate limited so the mesh is never flooded, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
+Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze that never runs out and is never refused (fake pages, fake file downloads or both), so a crawler walks it until it disconnects, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
 
 ## Docker
 
@@ -307,6 +307,14 @@ The UI is on port 8484, everything else in `nomad-data/`: settings, nodes, ident
 ## Resources
 
 On a Debian server with three busy nodes and a plugin, the process uses about 95 MB: about 36 MB are Python and Reticulum, the rest the nodes, counters and the plugin's data. An empty server uses about 47 MB.
+
+## What's new
+
+- Maze answers: pages, files or both.
+- Maze never refused, no rate limit.
+- Trap pages shown as traps, not blocked.
+- Peer list: newest or oldest first, rows stay still.
+- Up to 60 pages listed per connection.
 
 ## Credits
 
