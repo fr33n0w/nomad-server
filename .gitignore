@@ -14,3 +14,5 @@ nomad-data/
 build/
 *.egg-info/
 dist/
+venv/
+.venv/
