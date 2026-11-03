@@ -25,6 +25,14 @@ if ! "$PY" -c "import RNS" 2>/dev/null; then
     if [ -n "$VIRTUAL_ENV" ]; then
         "$PY" -m pip install rns
     else
+        # never outside a venv without asking: some keep the global Python clean
+        echo "rns is not installed and no venv is in use."
+        echo "To keep it in a venv: create one here (python3 -m venv venv) or activate yours, then run this again."
+        read -r -p "Install rns for $U outside any venv (pip --user)? [Y/n] " GLOBAL || GLOBAL=
+        if [ "$GLOBAL" = n ] || [ "$GLOBAL" = N ]; then
+            echo "Nothing installed."
+            exit 0
+        fi
         "$PY" -m pip install --user rns --break-system-packages || "$PY" -m pip install --user rns
     fi
 fi

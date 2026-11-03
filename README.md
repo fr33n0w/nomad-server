@@ -61,7 +61,7 @@ bash install.sh
 
 Run it as your normal user (not root): it uses `sudo` only to install the service. It:
 
-1. installs `rns` if missing (in the venv when the folder has one, see [venv](#in-a-virtual-environment-venv))
+1. installs `rns` if missing: in the venv when there is one (see [venv](#in-a-virtual-environment-venv)), otherwise it asks before installing it for your user (`pip --user`)
 2. if the web UI port (8484) is already in use, asks for another one
 3. asks whether to open the web UI to the local network (`0.0.0.0`); if yes, it asks for a password (empty = none)
 4. asks the name of your first node (only if there are no nodes yet)
@@ -100,7 +100,7 @@ python3 -m venv venv
 bash install.sh
 ```
 
-The installer finds `venv` (or `.venv`) in the folder by itself, also when it is not activated: it installs `rns` in it and the service runs with the venv python. Running it again later keeps using the venv. Then everything is as in [Installer](#installer-debian-ubuntu-raspberry-pi), with the venv python for the commands:
+The installer finds `venv` (or `.venv`) in the folder by itself, also when it is not activated: it installs `rns` in it and the service runs with the venv python. Running it again later keeps using the venv. A venv kept elsewhere (e.g. `~/venvs/nomad`) works too: activate it before `bash install.sh`. Nothing is installed outside a venv without asking: if no venv is in use, answer `n` and the installer stops with nothing changed. Then everything is as in [Installer](#installer-debian-ubuntu-raspberry-pi), with the venv python for the commands:
 
 | What | Command |
 |---|---|
@@ -133,6 +133,35 @@ Then as in [Quick start](#quick-start): open http://127.0.0.1:8484, press **Crea
 Use the venv python for every command: `venv/bin/python nomad_server.py --status` (also `--stop`, `--new-node NAME`, `--app`, ...), or run `source venv/bin/activate` (Windows `venv\Scripts\activate`) once in the terminal and then plain `python`. To update: `git pull` and `venv/bin/pip install -U rns`. Desktop icons made from Settings > Shortcuts use the venv by themselves.
 
 **As a command**: `venv/bin/pip install git+https://github.com/fr33n0w/nomad-server`, then `venv/bin/nomad-server` (data in `~/.nomad-server`).
+
+**Where Reticulum runs.** The venv always needs its own `rns`: it is the library nomad-server is made of. Who runs the Reticulum network is up to you:
+
+- *rnsd already installed for your user, nomad-server in a venv*: nothing else to do. nomad-server connects to the running `rnsd` and the installer starts it after `rnsd.service`; when `rnsd` restarts, nomad-server reconnects by itself. Run nomad-server as the same user as `rnsd` (otherwise see *rnsd under another user* above) and keep the two `rns` close in version (`pip install -U rns` on both).
+- *Everything in the venv, no rnsd*: nomad-server runs Reticulum by itself, with the interfaces of `~/.reticulum/config`. Nothing is installed outside the venv. While it runs, other programs (NomadNet, rBrowser) can use it as their shared instance; they are cut off while nomad-server restarts.
+- *Everything in the venv, rnsd from the venv*: `rns` in the venv also has `venv/bin/rnsd`. Make it a service, then run the installer (it finds `rnsd.service` and starts after it). From the nomad-server folder:
+
+```
+python3 -m venv venv
+venv/bin/pip install rns
+sudo tee /etc/systemd/system/rnsd.service >/dev/null <<EOF
+[Unit]
+Description=Reticulum rnsd (venv)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$USER
+ExecStart=$PWD/venv/bin/rnsd --service
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now rnsd
+bash install.sh
+```
 
 If the web UI port is already in use (for example another nomad-server), the server stops with a message: change `port` in the `[webui]` section of `server.cfg` and start it again.
 

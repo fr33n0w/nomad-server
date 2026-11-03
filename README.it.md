@@ -61,7 +61,7 @@ bash install.sh
 
 Va lanciato come utente normale (non root): usa `sudo` solo per installare il service. Fa questo:
 
-1. installa `rns` se manca (nel venv se la cartella ne ha uno, vedi [venv](#in-un-ambiente-virtuale-venv))
+1. installa `rns` se manca: nel venv se ce n'è uno (vedi [venv](#in-un-ambiente-virtuale-venv)), altrimenti chiede prima di installarlo per il tuo utente (`pip --user`)
 2. se la porta della web UI (8484) è già occupata, ne chiede un'altra
 3. chiede se aprire la web UI alla rete locale (`0.0.0.0`); se sì, chiede una password (vuota = nessuna)
 4. chiede il nome del primo nodo (solo se non ci sono ancora nodi)
@@ -100,7 +100,7 @@ python3 -m venv venv
 bash install.sh
 ```
 
-L'installer trova da solo `venv` (o `.venv`) nella cartella, anche se non è attivato: ci installa `rns` e il service gira col python del venv. Rilanciandolo più avanti continua a usare il venv. Poi è tutto come in [Installer](#installer-debian-ubuntu-raspberry-pi), col python del venv per i comandi:
+L'installer trova da solo `venv` (o `.venv`) nella cartella, anche se non è attivato: ci installa `rns` e il service gira col python del venv. Rilanciandolo più avanti continua a usare il venv. Funziona anche un venv tenuto altrove (es. `~/venvs/nomad`): attivalo prima di `bash install.sh`. Fuori da un venv non installa niente senza chiedere: se nessun venv è in uso, rispondi `n` e l'installer si ferma senza aver cambiato nulla. Poi è tutto come in [Installer](#installer-debian-ubuntu-raspberry-pi), col python del venv per i comandi:
 
 | Cosa | Comando |
 |---|---|
@@ -133,6 +133,35 @@ Poi come in [Avvio rapido](#avvio-rapido): apri http://127.0.0.1:8484, premi **C
 Usa il python del venv per ogni comando: `venv/bin/python nomad_server.py --status` (anche `--stop`, `--new-node NOME`, `--app`, ...), oppure lancia una volta `source venv/bin/activate` (Windows `venv\Scripts\activate`) nel terminale e poi `python` normale. Per aggiornare: `git pull` e `venv/bin/pip install -U rns`. Le icone create da Settings > Shortcuts usano il venv da sole.
 
 **Come comando**: `venv/bin/pip install git+https://github.com/fr33n0w/nomad-server`, poi `venv/bin/nomad-server` (dati in `~/.nomad-server`).
+
+**Dove gira Reticulum.** Il venv ha sempre bisogno del suo `rns`: è la libreria di cui è fatto nomad-server. Chi fa girare la rete Reticulum lo scegli tu:
+
+- *rnsd già installato per il tuo utente, nomad-server nel venv*: non serve altro. nomad-server si collega al `rnsd` acceso e l'installer lo fa partire dopo `rnsd.service`; quando `rnsd` si riavvia, nomad-server si ricollega da solo. Fai girare nomad-server con lo stesso utente di `rnsd` (altrimenti vedi *rnsd con un altro utente* più sopra) e tieni le due copie di `rns` alla stessa versione (`pip install -U rns` su entrambe).
+- *Tutto nel venv, senza rnsd*: nomad-server fa girare Reticulum da solo, con le interfacce di `~/.reticulum/config`. Fuori dal venv non viene installato niente. Mentre gira, altri programmi (NomadNet, rBrowser) possono usarlo come istanza condivisa; restano scollegati mentre nomad-server si riavvia.
+- *Tutto nel venv, rnsd dal venv*: `rns` nel venv contiene anche `venv/bin/rnsd`. Fanne un service, poi lancia l'installer (trova `rnsd.service` e parte dopo). Dalla cartella di nomad-server:
+
+```
+python3 -m venv venv
+venv/bin/pip install rns
+sudo tee /etc/systemd/system/rnsd.service >/dev/null <<EOF
+[Unit]
+Description=Reticulum rnsd (venv)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$USER
+ExecStart=$PWD/venv/bin/rnsd --service
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now rnsd
+bash install.sh
+```
 
 Se la porta della web UI è già occupata (per esempio da un altro nomad-server), il server si ferma con un messaggio: cambia `port` nella sezione `[webui]` di `server.cfg` e rilancialo.
 
