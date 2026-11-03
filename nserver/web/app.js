@@ -729,7 +729,8 @@ const blockBtn = (who, name, node, identity) => {
   const b = blocked[who];
   if (!b) return `<button class="btn-block" data-block="${esc(who)}" data-name="${esc(name || "")}" data-node="${esc(node || "")}" title="Block this LXMF address">Block</button> ${bhBtn(who, identity)}`;
   const all = !b.scope || b.scope === "all";
-  return `<span class="flag bad">blocked${all ? "" : " on " + esc(scopeText(b.scope))}</span>${all ? "" : " " + widenBtn(who)} <button class="btn-unblock" data-unblock="${esc(who)}" title="Remove it from the blocklist">Unblock</button> ${bhBtn(who)}`;
+  // the flag on its own line, the buttons together in one row under it
+  return `<span class="flag bad">blocked${all ? "" : " on " + esc(scopeText(b.scope))}</span> <span class="btn-row">${all ? "" : widenBtn(who) + " "}<button class="btn-unblock" data-unblock="${esc(who)}" title="Remove it from the blocklist">Unblock</button> ${bhBtn(who)}</span>`;
 };
 
 let blockReasons = [];
