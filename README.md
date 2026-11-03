@@ -44,11 +44,97 @@ If `rnsd` is running, the nodes use it; otherwise nomad-server runs its own Reti
 | App window | `python nomad_server.py --app` | the UI in its own window (Edge or Chrome); closing the window stops a server it started |
 | Windows | `start.bat`, `start_hidden.vbs` | the second one runs with no window at all |
 | Desktop icons | Settings > Shortcuts | desktop and app menu, Windows and Linux desktops |
-| Debian, Ubuntu, Raspberry Pi | `bash install.sh` | installs `rns` if missing, optional password, systemd service at boot |
+| Debian, Ubuntu, Raspberry Pi | `bash install.sh` | systemd service at boot, see [Installer](#installer-debian-ubuntu-raspberry-pi) |
 | pipx | `pipx install git+https://github.com/fr33n0w/nomad-server` | then `nomad-server`; data in `~/.nomad-server` |
 | Docker | `mkdir nomad-data && docker compose up -d` | see [Docker](#docker) |
 
 Only one server runs on a folder: the same identities can never be online twice. Started again with `--app`, it just opens the window.
+
+### Installer (Debian, Ubuntu, Raspberry Pi)
+
+```
+sudo apt install git python3-pip
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+bash install.sh
+```
+
+Run it as your normal user (not root): it uses `sudo` only to install the service. It:
+
+1. installs `rns` if missing (in the venv when the folder has one, see [venv](#in-a-virtual-environment-venv))
+2. if the web UI port (8484) is already in use, asks for another one
+3. asks whether to open the web UI to the local network (`0.0.0.0`); if yes, it asks for a password (empty = none)
+4. asks the name of your first node (only if there are no nodes yet)
+5. asks whether to install the systemd service `nomad-server`: it starts at boot, as your user, from this folder, after `rnsd` when `rnsd.service` exists. If `nomad-server` is already used by another folder, it asks a name for this one (e.g. `nomad-server-2`), so several servers can run side by side.
+
+Running it again is safe: it keeps your nodes, settings and service name, and restarts the service. Then (use your service name):
+
+| What | Command |
+|---|---|
+| state | `python3 nomad_server.py --status` (in a venv: `venv/bin/python3 nomad_server.py --status`) |
+| log | `journalctl -u nomad-server -f` |
+| stop, start, restart | `sudo systemctl stop nomad-server` (`start`, `restart`) |
+| update | `git pull`, then `sudo systemctl restart nomad-server` |
+| remove the service | `sudo systemctl disable --now nomad-server && sudo rm /etc/systemd/system/nomad-server.service && sudo systemctl daemon-reload` |
+
+Under systemd `--stop` is refused (systemd would start it again): use `systemctl`. Restart from the web UI works.
+
+**rnsd under another user.** Pages are served anyway, but `rnsd` refuses the status requests of other users: no Reticulum status in the web UI and no visitor names (the log says so). Give nomad-server the same RPC key as `rnsd`. As the user of `rnsd`:
+
+```
+python3 -c "import RNS, os; print(RNS.Identity.full_hash(RNS.Identity.from_file(os.path.expanduser('~/.reticulum/storage/transport_identity')).get_private_key()).hex())"
+```
+
+then, in `~/.reticulum/config` of the nomad-server user, under `[reticulum]`, add `rpc_key = <that key>` and restart nomad-server. The key gives control of `rnsd`: keep it private.
+
+### In a virtual environment (venv)
+
+A venv keeps `rns` and its libraries inside the nomad-server folder, apart from the system Python. On Debian, Ubuntu and Raspberry Pi OS first: `sudo apt install git python3-venv`.
+
+**With the installer** (Debian, Ubuntu, Raspberry Pi), for a server that starts at boot:
+
+```
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+python3 -m venv venv
+bash install.sh
+```
+
+The installer finds `venv` (or `.venv`) in the folder by itself, also when it is not activated: it installs `rns` in it and the service runs with the venv python. Running it again later keeps using the venv. Then everything is as in [Installer](#installer-debian-ubuntu-raspberry-pi), with the venv python for the commands:
+
+| What | Command |
+|---|---|
+| state | `venv/bin/python nomad_server.py --status` |
+| log | `journalctl -u nomad-server -f` |
+| update | `git pull`, `venv/bin/pip install -U rns`, then `sudo systemctl restart nomad-server` |
+
+**By hand** (Linux, macOS, Raspberry Pi):
+
+```
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+python3 -m venv venv
+venv/bin/pip install rns
+venv/bin/python nomad_server.py
+```
+
+Windows:
+
+```
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+python -m venv venv
+venv\Scripts\pip install rns
+venv\Scripts\python nomad_server.py
+```
+
+Then as in [Quick start](#quick-start): open http://127.0.0.1:8484, press **Create new node**, then **Start**. Ctrl+C stops the server.
+
+Use the venv python for every command: `venv/bin/python nomad_server.py --status` (also `--stop`, `--new-node NAME`, `--app`, ...), or run `source venv/bin/activate` (Windows `venv\Scripts\activate`) once in the terminal and then plain `python`. To update: `git pull` and `venv/bin/pip install -U rns`. Desktop icons made from Settings > Shortcuts use the venv by themselves.
+
+**As a command**: `venv/bin/pip install git+https://github.com/fr33n0w/nomad-server`, then `venv/bin/nomad-server` (data in `~/.nomad-server`).
+
+If the web UI port is already in use (for example another nomad-server), the server stops with a message: change `port` in the `[webui]` section of `server.cfg` and start it again.
 
 ## Command line
 

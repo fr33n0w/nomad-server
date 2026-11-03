@@ -16,6 +16,20 @@ from .node import Node, SAMPLE_INDEX
 JOB_SECONDS = 5
 # Taken at start, before anything can change the working folder
 SCRIPT = os.environ.get("NOMAD_SERVER_SCRIPT") or os.path.abspath(sys.argv[0])
+RPC_REJECTED = ("rnsd runs as another user and refused our requests: pages are served, but Reticulum status "
+                "and visitor names are not available. Fix: same rpc_key in [reticulum] (see README)")
+
+
+def systemd_unit():
+    """Name of our systemd service, from the cgroup (install.sh may name it otherwise)."""
+    try:
+        with open("/proc/self/cgroup") as f:
+            m = re.search(r"/([^/]+)\.service\s*$", f.read(), re.M)
+        if m:
+            return m.group(1)
+    except OSError:
+        pass
+    return "nomad-server"
 
 
 class Server:
@@ -438,6 +452,12 @@ class Server:
             info["transport"] = stats.get("transport_id") is not None
         except Exception as e:
             info["error"] = str(e)
+            if "digest" in str(e):
+                # the shared instance belongs to another user: its RPC key is not ours
+                info["error"] = RPC_REJECTED
+                if not getattr(self, "rpc_warned", False):
+                    self.rpc_warned = True
+                    log.line(RPC_REJECTED, kind="warn")
         return info
 
     def overview(self):
@@ -480,7 +500,7 @@ class Server:
 
     def request_stop(self):
         if os.environ.get("INVOCATION_ID"):
-            raise ValueError("running as a systemd service: stop it with  sudo systemctl stop nomad-server")
+            raise ValueError("running as a systemd service: stop it with  sudo systemctl stop %s" % systemd_unit())
         log.line("Stop asked from the web UI or the console")
         threading.Timer(0.5, lambda: setattr(self, "stop_requested", True)).start()
 

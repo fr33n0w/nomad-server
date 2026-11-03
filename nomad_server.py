@@ -102,6 +102,8 @@ def show_status(as_json):
     rns = o["rns"]
     print("nomad-server %s, up %s, Reticulum: %s" % (o["version"], span(o["now"] - o["started"]),
                                                      "shared instance" if rns["shared"] else "own instance"))
+    if rns.get("error"):
+        print("  " + rns["error"])
     for i in rns["interfaces"]:
         # "TCPInterface[hub/host:4242]" -> "TCP hub/host:4242", as in the web UI
         m = re.match(r"^(\w+?)(?:Interface)?\[(.*)\]$", i["name"])
@@ -212,7 +214,11 @@ def run(args):
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
     ui = WebUI(srv, console_only=args.no_webui or not srv.cfg.getbool("webui", "enabled"))
-    if ui.start() and args.app and not ui.console_only:
+    if not ui.start():
+        # without its port nothing can reach this server, not even --status or --stop
+        log.line("Stopping: free the port or change it, then start again", kind="error")
+        stop["now"] = stop["failed"] = True
+    elif args.app and not ui.console_only:
         window = open_app(ui.url(), os.path.join(BASE, "data", "app-window"))
         if window:
             # started as an app: closing the window stops the server
@@ -246,7 +252,7 @@ def run(args):
         if os.environ.get("INVOCATION_ID"):
             os._exit(75)
         srv.respawn()
-    os._exit(0)
+    os._exit(1 if stop.get("failed") else 0)
 
 
 def main():

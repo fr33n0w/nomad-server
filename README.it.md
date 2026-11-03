@@ -44,11 +44,97 @@ Se `rnsd` è acceso, i nodi usano quello; altrimenti nomad-server avvia una sua 
 | Finestra app | `python nomad_server.py --app` | la UI in una finestra sua (Edge o Chrome); chiudendola si ferma il server che ha avviato |
 | Windows | `start.bat`, `start_hidden.vbs` | il secondo gira senza nessuna finestra |
 | Icone | Settings > Shortcuts | desktop e menu app, Windows e desktop Linux |
-| Debian, Ubuntu, Raspberry Pi | `bash install.sh` | installa `rns` se manca, password facoltativa, service systemd all'avvio |
+| Debian, Ubuntu, Raspberry Pi | `bash install.sh` | service systemd all'avvio, vedi [Installer](#installer-debian-ubuntu-raspberry-pi) |
 | pipx | `pipx install git+https://github.com/fr33n0w/nomad-server` | poi `nomad-server`; dati in `~/.nomad-server` |
 | Docker | `mkdir nomad-data && docker compose up -d` | vedi [Docker](#docker) |
 
 Su una cartella gira un solo server: le stesse identità non vanno mai in rete due volte. Rilanciato con `--app`, apre solo la finestra.
+
+### Installer (Debian, Ubuntu, Raspberry Pi)
+
+```
+sudo apt install git python3-pip
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+bash install.sh
+```
+
+Va lanciato come utente normale (non root): usa `sudo` solo per installare il service. Fa questo:
+
+1. installa `rns` se manca (nel venv se la cartella ne ha uno, vedi [venv](#in-un-ambiente-virtuale-venv))
+2. se la porta della web UI (8484) è già occupata, ne chiede un'altra
+3. chiede se aprire la web UI alla rete locale (`0.0.0.0`); se sì, chiede una password (vuota = nessuna)
+4. chiede il nome del primo nodo (solo se non ci sono ancora nodi)
+5. chiede se installare il service systemd `nomad-server`: parte all'avvio, col tuo utente, da questa cartella, dopo `rnsd` se esiste `rnsd.service`. Se `nomad-server` è già usato da un'altra cartella, chiede un nome per questa (es. `nomad-server-2`), così più server girano affiancati.
+
+Rilanciarlo non fa danni: nodi, impostazioni e nome del service restano, e il service viene riavviato. Poi (col nome del tuo service):
+
+| Cosa | Comando |
+|---|---|
+| stato | `python3 nomad_server.py --status` (in un venv: `venv/bin/python3 nomad_server.py --status`) |
+| log | `journalctl -u nomad-server -f` |
+| stop, avvio, riavvio | `sudo systemctl stop nomad-server` (`start`, `restart`) |
+| aggiornare | `git pull`, poi `sudo systemctl restart nomad-server` |
+| togliere il service | `sudo systemctl disable --now nomad-server && sudo rm /etc/systemd/system/nomad-server.service && sudo systemctl daemon-reload` |
+
+Sotto systemd `--stop` viene rifiutato (systemd lo farebbe ripartire): usa `systemctl`. Il riavvio dalla web UI funziona.
+
+**rnsd con un altro utente.** Le pagine vengono servite lo stesso, ma `rnsd` rifiuta le richieste di stato degli altri utenti: niente stato di Reticulum nella web UI e niente nomi dei visitatori (lo dice il log). Dai a nomad-server la stessa chiave RPC di `rnsd`. Con l'utente di `rnsd`:
+
+```
+python3 -c "import RNS, os; print(RNS.Identity.full_hash(RNS.Identity.from_file(os.path.expanduser('~/.reticulum/storage/transport_identity')).get_private_key()).hex())"
+```
+
+poi, in `~/.reticulum/config` dell'utente di nomad-server, sotto `[reticulum]`, aggiungi `rpc_key = <quella chiave>` e riavvia nomad-server. La chiave dà il controllo di `rnsd`: tienila privata.
+
+### In un ambiente virtuale (venv)
+
+Un venv tiene `rns` e le sue librerie dentro la cartella di nomad-server, separati dal Python di sistema. Su Debian, Ubuntu e Raspberry Pi OS prima: `sudo apt install git python3-venv`.
+
+**Con l'installer** (Debian, Ubuntu, Raspberry Pi), per un server che parte all'avvio:
+
+```
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+python3 -m venv venv
+bash install.sh
+```
+
+L'installer trova da solo `venv` (o `.venv`) nella cartella, anche se non è attivato: ci installa `rns` e il service gira col python del venv. Rilanciandolo più avanti continua a usare il venv. Poi è tutto come in [Installer](#installer-debian-ubuntu-raspberry-pi), col python del venv per i comandi:
+
+| Cosa | Comando |
+|---|---|
+| stato | `venv/bin/python nomad_server.py --status` |
+| log | `journalctl -u nomad-server -f` |
+| aggiornare | `git pull`, `venv/bin/pip install -U rns`, poi `sudo systemctl restart nomad-server` |
+
+**A mano** (Linux, macOS, Raspberry Pi):
+
+```
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+python3 -m venv venv
+venv/bin/pip install rns
+venv/bin/python nomad_server.py
+```
+
+Windows:
+
+```
+git clone https://github.com/fr33n0w/nomad-server
+cd nomad-server
+python -m venv venv
+venv\Scripts\pip install rns
+venv\Scripts\python nomad_server.py
+```
+
+Poi come in [Avvio rapido](#avvio-rapido): apri http://127.0.0.1:8484, premi **Create new node**, poi **Start**. Ctrl+C ferma il server.
+
+Usa il python del venv per ogni comando: `venv/bin/python nomad_server.py --status` (anche `--stop`, `--new-node NOME`, `--app`, ...), oppure lancia una volta `source venv/bin/activate` (Windows `venv\Scripts\activate`) nel terminale e poi `python` normale. Per aggiornare: `git pull` e `venv/bin/pip install -U rns`. Le icone create da Settings > Shortcuts usano il venv da sole.
+
+**Come comando**: `venv/bin/pip install git+https://github.com/fr33n0w/nomad-server`, poi `venv/bin/nomad-server` (dati in `~/.nomad-server`).
+
+Se la porta della web UI è già occupata (per esempio da un altro nomad-server), il server si ferma con un messaggio: cambia `port` nella sezione `[webui]` di `server.cfg` e rilancialo.
 
 ## Riga di comando
 

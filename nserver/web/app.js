@@ -637,11 +637,14 @@ function formHtml(fields, values, prefix) {
   return fields.map(([sec, key, type, label, hint]) => {
     const id = `${prefix}-${sec}-${key}`;
     const v = values?.[sec]?.[key] ?? "";
+    const on = /^(yes|true|on|1)$/i.test(v);
+    // data-orig: the value drawn here, so a save sends only what was changed in the form
+    const orig = `data-orig="${esc(type === "bool" ? (on ? "yes" : "no") : String(v).trim())}"`;
     const input = type.startsWith("select:")
-      ? `<select id="${id}">${type.slice(7).split(",").map((o) => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
+      ? `<select id="${id}" ${orig}>${type.slice(7).split(",").map((o) => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
       : type === "bool"
-      ? `<input id="${id}" type="checkbox" ${/^(yes|true|on|1)$/i.test(v) ? "checked" : ""}>`
-      : `<input id="${id}" type="${type}" value="${esc(v)}" ${type === "number" ? 'min="0"' : ""}>`;
+      ? `<input id="${id}" type="checkbox" ${orig} ${on ? "checked" : ""}>`
+      : `<input id="${id}" type="${type}" ${orig} value="${esc(v)}" ${type === "number" ? 'min="0"' : ""}>`;
     return `<div class="field"><label for="${id}">${label}</label>${input}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
   }).join("");
 }
@@ -650,7 +653,9 @@ function formValues(fields, prefix) {
   const out = {};
   for (const [sec, key, type] of fields) {
     const el = $(`#${prefix}-${sec}-${key}`);
-    (out[sec] ||= {})[key] = type === "bool" ? (el.checked ? "yes" : "no") : el.value.trim();
+    const v = type === "bool" ? (el.checked ? "yes" : "no") : el.value.trim();
+    // an untouched field may be stale (e.g. Enabled after Start): never send it back
+    if (v !== el.dataset.orig) (out[sec] ||= {})[key] = v;
   }
   return out;
 }

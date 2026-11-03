@@ -97,7 +97,8 @@ class WebUI:
         try:
             self.httpd = ThreadingHTTPServer((host, port), handler)
         except OSError as e:
-            log.line("Web UI not started on %s:%d: %s" % (host, port, e), kind="error")
+            log.line("Web UI not started on %s:%d: %s (port in use? change port in [webui] of %s)" % (
+                host, port, e, os.path.join(self.server.base, "server.cfg")), kind="error")
             return False
         self.httpd.daemon_threads = True
         self.bound = (host, port, self.console_only)
