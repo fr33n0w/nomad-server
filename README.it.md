@@ -277,13 +277,57 @@ I plugin di tutti i nodi condividono un processo Python: dai nomi diversi ai lor
 
 ## Portare qui un nodo esistente
 
-Un nodo fatto con NomadNet o con `rns_server_page.py` si sposta senza cambiare indirizzo:
+L'indirizzo di un nodo viene dal suo file `identity` (la chiave privata). Dai quel file a un nodo di nomad-server e il nodo tiene il suo indirizzo: visitatori, segnalibri e link continuano a funzionare.
 
-1. **Create new node**, poi **Import identity** con il file `identity` del vecchio nodo.
-2. Copia le sue `pages/` e `files/`, oppure sostituisci le due cartelle con collegamenti a quelle vecchie se un programma continua a scriverle.
-3. Copia il suo `data/visits.json`, se c'è: i vecchi conteggi si sommano ai contatori nuovi, una volta sola.
-4. Il codice che faceva pagine dentro il vecchio server diventa un `plugin.py`; i programmi che riscrivono pagine in background possono essere avviati e fermati dal plugin insieme al nodo.
-5. Ferma il vecchio server, poi premi **Start**. Mai la stessa identità accesa in due posti.
+**Cosa serve dal vecchio nodo**
+
+| | NomadNet | `rns_server_page.py` e simili |
+|---|---|---|
+| identity | `~/.nomadnetwork/storage/identity` | il file `identity` nella sua cartella |
+| pagine | `~/.nomadnetwork/storage/pages/` | la sua `pages/` |
+| file | `~/.nomadnetwork/storage/files/` | la sua `files/` |
+| contatori | - | `data/visits.json`, se c'è |
+
+NomadNet può usare `~/.config/nomadnetwork/` al posto di `~/.nomadnetwork/`; `pages_path` e `files_path` nella sezione `[node]` del suo `config` possono puntare altrove. Su Windows `~` è `C:\Users\<tuo utente>`.
+
+**Passi**
+
+1. **Create new node**, con il nome che aveva il vecchio nodo. Parte fermo, quindi la sua identità nuova non va mai in rete.
+2. Settings > Node > **Import identity**, scegli il vecchio file `identity`. L'indirizzo mostrato sotto il nodo diventa quello vecchio: controlla che sia quello che conosci.
+3. Copia le vecchie pagine in `nodes/<nodo>/pages/` e i file in `nodes/<nodo>/files/` (Settings mostra dove sono, **Open folder** le apre). Il vecchio `index.mu` sostituisce quello di esempio. Su Linux copia con `cp -a`, così le pagine eseguibili restano eseguibili; le liste `.allowed` funzionano come in NomadNet.
+4. Facoltativo: copia `data/visits.json` in `nodes/<nodo>/data/`. I vecchi conteggi si sommano a quelli nuovi, una volta sola.
+5. Ferma il vecchio nodo:
+   - NomadNet: nel suo `config`, sezione `[node]`, metti `enable_node = no` e riavvialo. NomadNet continua a funzionare come messenger con lo stesso indirizzo LXMF: si sposta solo il nodo.
+   - un altro server: fermalo e disattiva il suo servizio (`sudo systemctl disable --now NOME`).
+6. Premi **Start** sul nodo, poi **Announce**. Aprilo da un altro computer (NomadNet, MeshChat, rBrowser) per controllare.
+
+Mai lo stesso nodo servito da due posti insieme: la rete vedrebbe due nodi con un indirizzo solo.
+
+**Pagine che un programma continua a scrivere**
+
+Se uno script rigenera le pagine, fallo scrivere in `nodes/<nodo>/pages/`, oppure sostituisci la cartella `pages/` con un collegamento a quella vecchia:
+
+```
+rm -r nodes/mio-nodo/pages && ln -s /percorso/vecchio/pages nodes/mio-nodo/pages        # Linux, macOS
+rmdir /s /q nodes\mio-nodo\pages & mklink /J nodes\mio-nodo\pages C:\percorso\vecchio\pages  # Windows
+```
+
+**Codice che faceva pagine dentro il vecchio server**
+
+Diventa il `plugin.py` del nodo (vedi [Pagine dinamiche](#pagine-dinamiche)). Un programma che gira in background, come un generatore di pagine, può essere avviato dal plugin con il nodo e fermato con lui:
+
+```python
+import subprocess, sys
+proc = None
+
+def start(node):
+    global proc
+    proc = subprocess.Popen([sys.executable, "/percorso/generatore.py", "--loop"])
+
+def stop():
+    if proc:
+        proc.terminate()
+```
 
 ## Visitatori e blocchi
 

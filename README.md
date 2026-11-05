@@ -277,13 +277,57 @@ Plugins of all nodes share one Python process: give their helper modules distinc
 
 ## Moving an existing node here
 
-A node made with NomadNet or `rns_server_page.py` moves without changing its address:
+A node's address comes from its `identity` file (the private key). Give that file to a node of nomad-server and the node keeps its address: visitors, bookmarks and links keep working.
 
-1. **Create new node**, then **Import identity** with the old node's `identity` file.
-2. Copy its `pages/` and `files/`, or replace the two folders with links to the old ones if a program keeps writing them.
-3. Copy its `data/visits.json`, if it has one: the old counts are added to the new counters, once.
-4. Code that made pages inside the old server becomes a `plugin.py`; programs that rewrite pages in the background can be started and stopped by the plugin with the node.
-5. Stop the old server, then press **Start**. Never run the same identity in two places at once.
+**What you need from the old node**
+
+| | NomadNet | `rns_server_page.py` and similar |
+|---|---|---|
+| identity | `~/.nomadnetwork/storage/identity` | the `identity` file in its folder |
+| pages | `~/.nomadnetwork/storage/pages/` | its `pages/` |
+| files | `~/.nomadnetwork/storage/files/` | its `files/` |
+| counters | - | `data/visits.json`, if any |
+
+NomadNet may use `~/.config/nomadnetwork/` instead of `~/.nomadnetwork/`; `pages_path` and `files_path` in the `[node]` section of its `config` can point elsewhere. On Windows `~` is `C:\Users\<you>`.
+
+**Steps**
+
+1. **Create new node**, with the name the old node had. It starts stopped, so its new identity never goes on the network.
+2. Settings > Node > **Import identity**, choose the old `identity` file. The address shown under the node changes to the old one: check it is the one you know.
+3. Copy the old pages into `nodes/<node>/pages/` and the files into `nodes/<node>/files/` (Settings shows where they are, **Open folder** opens them). The old `index.mu` replaces the sample one. On Linux copy with `cp -a`, so executable pages stay executable; `.allowed` lists work as in NomadNet.
+4. Optional: copy `data/visits.json` into `nodes/<node>/data/`. The old counts are added to the new ones, once.
+5. Stop the old node:
+   - NomadNet: in its `config`, section `[node]`, set `enable_node = no` and restart it. NomadNet keeps working as a messenger with the same LXMF address: only the node moves.
+   - another server: stop it and disable its service (`sudo systemctl disable --now NAME`).
+6. Press **Start** on the node, then **Announce**. Open it from another computer (NomadNet, MeshChat, rBrowser) to check.
+
+Never serve the same node from two places at once: the network would see two nodes with one address.
+
+**Pages that a program keeps writing**
+
+If a script regenerates the pages, point it to `nodes/<node>/pages/`, or replace the `pages/` folder with a link to the old one:
+
+```
+rm -r nodes/my-node/pages && ln -s /path/old/pages nodes/my-node/pages        # Linux, macOS
+rmdir /s /q nodes\my-node\pages & mklink /J nodes\my-node\pages C:\path\old\pages  # Windows
+```
+
+**Code that made pages inside the old server**
+
+It becomes the node's `plugin.py` (see [Dynamic pages](#dynamic-pages)). A program that runs in the background, like a page generator, can be started by the plugin with the node and stopped with it:
+
+```python
+import subprocess, sys
+proc = None
+
+def start(node):
+    global proc
+    proc = subprocess.Popen([sys.executable, "/path/generator.py", "--loop"])
+
+def stop():
+    if proc:
+        proc.terminate()
+```
 
 ## Visitors and blocking
 
