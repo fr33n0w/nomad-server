@@ -257,23 +257,33 @@ Every request is counted, reloads and identified visitors included. A page asked
 ## Dynamic pages
 
 - **Executable pages**, as in NomadNet: a `.mu` with a shebang (`#!/usr/bin/env python3`) and `chmod +x` runs at each request and what it prints is the page. Form fields and the visitor arrive as environment variables (`field_*`, `var_*`, `link_id`, `remote_identity`). On Windows pages with a Python shebang run too.
-- **Plugins**: a `plugin.py` in the node folder, loaded once inside the server. No new process per request, also on Windows, and it gets the visitor's LXMF address and name.
+- **Plugins**: a `plugin.py` in the node folder, loaded inside the server when the node starts. No new process per request, also on Windows, and it gets the visitor's LXMF address and name.
 
 ```python
-PATHS = ["/page/guestbook.mu"]
+PATHS = ["/page/guestbook.mu"]           # the pages this plugin makes
 
-def start(node):      # optional: at node start (threads, generators)
-    pass
+def start(node):                         # optional: when the node starts
+    node.log("guestbook ready")
 
 def page(path, data, who=None, who_name="", link_id=None):
-    # data: form fields (field_*, var_*); who: LXMF address if the visitor identified
     return ">Guestbook\n\nHello " + (who_name or "stranger") + "\n"
 
-def stop():           # optional: at node stop
+def stop():                              # optional: when the node stops
     pass
 ```
 
-Plugins of all nodes share one Python process: give their helper modules distinct names.
+| | |
+|---|---|
+| `PATHS` | the pages the plugin answers. They show in the page list and win over a file with the same name |
+| `paths()` + `handles(path)` | instead of `PATHS`, for pages that change: `paths()` lists them, `handles(path)` says True for each path the plugin answers (for example everything under `/page/forum/`) |
+| `start(node)` | runs once. `node.folder`, `node.pages_path`, `node.files_path`; `node.log(text, "info"/"warn"/"error")` writes to the node's log. Start threads or background programs here |
+| `page(...)` | `path` as asked (`/page/guestbook.mu`); `data` the form fields and variables (`field_*`, `var_*`) or None; `who` the visitor's LXMF address if they identified, `who_name` their announced name, `link_id` the link. Returns micron as text or bytes |
+| `stop()` | at node stop or restart: stop what `start` started |
+
+- A change to `plugin.py` counts after **Restart** of the node. Errors go to the node's log: an error in `page()` shows the visitor "Error while making this page, try again later."
+- Plugin pages get the footer and the `{{visits}}` counters like the others.
+- Helper modules (`import board`) are found in the node folder. Plugins of all nodes share one Python process: give their helper modules distinct names.
+- Another file name: `plugin = myfile.py` in the `[node]` section of `node.cfg`.
 
 ## Moving an existing node here
 

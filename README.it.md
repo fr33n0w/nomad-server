@@ -257,23 +257,33 @@ Ogni richiesta viene contata, ricaricamenti e visitatori identificati compresi. 
 ## Pagine dinamiche
 
 - **Pagine eseguibili**, come in NomadNet: un `.mu` con shebang (`#!/usr/bin/env python3`) e `chmod +x` viene eseguito a ogni richiesta e quello che stampa è la pagina. Campi dei moduli e visitatore arrivano come variabili d'ambiente (`field_*`, `var_*`, `link_id`, `remote_identity`). Su Windows funzionano anche le pagine con shebang Python.
-- **Plugin**: un `plugin.py` nella cartella del nodo, caricato una volta dentro il server. Nessun processo nuovo per ogni richiesta, funziona anche su Windows e riceve indirizzo LXMF e nome del visitatore.
+- **Plugin**: un `plugin.py` nella cartella del nodo, caricato dentro il server quando il nodo parte. Nessun processo nuovo per ogni richiesta, funziona anche su Windows e riceve indirizzo LXMF e nome del visitatore.
 
 ```python
-PATHS = ["/page/guestbook.mu"]
+PATHS = ["/page/guestbook.mu"]           # le pagine che fa questo plugin
 
-def start(node):      # facoltativo: all'avvio del nodo (thread, generatori)
-    pass
+def start(node):                         # facoltativo: quando il nodo parte
+    node.log("guestbook pronto")
 
 def page(path, data, who=None, who_name="", link_id=None):
-    # data: campi del modulo (field_*, var_*); who: indirizzo LXMF se il visitatore si è identificato
     return ">Guestbook\n\nCiao " + (who_name or "sconosciuto") + "\n"
 
-def stop():           # facoltativo: allo stop del nodo
+def stop():                              # facoltativo: quando il nodo si ferma
     pass
 ```
 
-I plugin di tutti i nodi condividono un processo Python: dai nomi diversi ai loro moduli di supporto.
+| | |
+|---|---|
+| `PATHS` | le pagine a cui risponde il plugin. Compaiono nell'elenco delle pagine e vincono su un file con lo stesso nome |
+| `paths()` + `handles(path)` | al posto di `PATHS`, per pagine che cambiano: `paths()` le elenca, `handles(path)` dice True per ogni percorso a cui risponde il plugin (per esempio tutto sotto `/page/forum/`) |
+| `start(node)` | gira una volta. `node.folder`, `node.pages_path`, `node.files_path`; `node.log(testo, "info"/"warn"/"error")` scrive nel log del nodo. Qui si avviano thread o programmi in background |
+| `page(...)` | `path` come richiesto (`/page/guestbook.mu`); `data` i campi del modulo e le variabili (`field_*`, `var_*`) oppure None; `who` l'indirizzo LXMF del visitatore se si è identificato, `who_name` il nome che ha annunciato, `link_id` il link. Restituisce micron come testo o bytes |
+| `stop()` | allo stop o al riavvio del nodo: ferma quello che `start` ha avviato |
+
+- Una modifica a `plugin.py` vale dopo **Restart** del nodo. Gli errori finiscono nel log del nodo: un errore in `page()` mostra al visitatore "Error while making this page, try again later."
+- Le pagine del plugin hanno il footer e i contatori `{{visits}}` come le altre.
+- I moduli di supporto (`import board`) si trovano nella cartella del nodo. I plugin di tutti i nodi condividono un processo Python: dai nomi diversi ai loro moduli di supporto.
+- Un altro nome di file: `plugin = miofile.py` nella sezione `[node]` di `node.cfg`.
 
 ## Portare qui un nodo esistente
 
