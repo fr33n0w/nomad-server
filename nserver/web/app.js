@@ -7,7 +7,7 @@ const num = (n) => Number(n || 0).toLocaleString("en-US");
 
 let overview = null;
 let tab = "overview";
-let statsDays = 30;
+let statsDays = 0;   // 1 hour
 let chartMode = "requests";
 let lastStats = null;
 let logAfter = 0;
@@ -242,7 +242,7 @@ function renderOverview() {
       <td><span class="nm-cell"${hstyle(hue(n.address))}><span class="ndot"></span>${esc(n.name)}</span></td>
       <td class="who">${esc(v.link)}</td>
       <td>${v.who ? `<span class="who">${esc(v.who)}</span>${v.name ? ` <span class="muted">${esc(v.name)}</span>` : ""} ${blockBtn(v.who, v.name, n.id)}`
-        : `<span class="muted">Not identified</span> ${v.blocked ? `<span class="flag bad">link blocked · ${esc(v.blocked)}</span> <button class="btn-unblock" data-unblocklink="${esc(v.link)}" data-node="${esc(n.id)}">Unblock</button>` : `<button class="btn-block" data-blocklink="${esc(v.link)}" data-node="${esc(n.id)}" title="Block this connection until it disconnects">Block link</button>`}`}${v.crawler ? ` <span class="flag">crawler?</span>` : ""}</td>
+        : `<span class="muted">Not identified</span> ${isMaze(v.blocked) ? `<span class="flag">in the maze</span> ${releaseBtn(v.link, n.id)}` : v.blocked ? `<span class="flag bad">link blocked · ${esc(v.blocked)}</span> <button class="btn-unblock" data-unblocklink="${esc(v.link)}" data-node="${esc(n.id)}">Unblock</button>` : `<button class="btn-block" data-blocklink="${esc(v.link)}" data-node="${esc(n.id)}" title="Block this connection until it disconnects">Block link</button>`}`}${v.crawler ? ` <span class="flag">crawler?</span>` : ""}</td>
       <td class="n">${stamp(v.since)}<div class="muted small">${span(o.now - v.since)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${size(v.rx)}</td><td class="n">${size(v.tx)}</td></tr>`).join("")}</table>`
     : `<div class="empty">Nobody connected.</div>`;
 }
@@ -461,18 +461,34 @@ function niceStep(raw) {
   return 10 * p;
 }
 
-function chart(st) {
-  const traffic = chartMode === "traffic";
-  const hourly = statsDays === 1;
-  const series = traffic
-    ? [["amber", "content sent", (v) => v.bytes || 0], ["cyan", "link out", (v) => Math.max(0, (v.link_tx || 0) - (v.bytes || 0))], ["slate", "link in", (v) => v.link_rx || 0]]
-    : [["amber", "page views", (v) => v.page || 0], ["slate", "self-refreshes", (v) => v.refresh || 0], ["cyan", "files + images", (v) => (v.file || 0) + (v.media || 0)]];
-  $("#legend").innerHTML = series.map(([c, l]) => `<span><i class="sw c-${c}"></i>${l}</span>`).join("")
+// Stats chart; the Honeypot tab draws the same one with the maze as series of its own
+function chart(st, o = {}) {
+  const el = o.el || "#chart", days = o.days ?? statsDays, hp = !!o.honeypot;
+  const traffic = (o.mode || chartMode) === "traffic";
+  const minutely = days === 0, hourly = days === 1;
+  const series = hp
+    ? (traffic
+      ? [["amber", "bait content", (v) => v.bytes || 0], ["bad", "maze sent", (v) => v.maze_bytes || 0],
+         ["cyan", "link out", (v) => Math.max(0, (v.link_tx || 0) - (v.bytes || 0) - (v.maze_bytes || 0))], ["slate", "link in", (v) => v.link_rx || 0]]
+      : [["amber", "bait pages", (v) => v.page || 0], ["bad", "maze pages", (v) => v.maze_page || 0], ["cyan", "maze files", (v) => v.maze_file || 0],
+         ["slate", "bait files", (v) => (v.file || 0) + (v.media || 0)]])
+    : traffic
+      ? [["amber", "content sent", (v) => v.bytes || 0], ["cyan", "link out", (v) => Math.max(0, (v.link_tx || 0) - (v.bytes || 0))], ["slate", "link in", (v) => v.link_rx || 0]]
+      : [["amber", "page views", (v) => v.page || 0], ["slate", "self-refreshes", (v) => v.refresh || 0], ["cyan", "files + images", (v) => (v.file || 0) + (v.media || 0)]];
+  $(o.legend || "#legend").innerHTML = series.map(([c, l]) => `<span><i class="sw c-${c}"></i>${l}</span>`).join("")
     + (traffic ? `<span class="muted">link traffic counts when a visitor disconnects</span>` : "");
   const rows = [];
-  // 24 hours: one bar per hour (keys "YYYY-MM-DD HH"), otherwise one per day
-  const count = hourly ? 24 : statsDays;
+  // 1 hour: one bar per minute (in memory), 24 hours: one per hour (keys "YYYY-MM-DD HH"), otherwise one per day
+  const count = minutely ? 60 : hourly ? 24 : days;
+  const nowMin = Math.floor(Date.now() / 60000);
   for (let i = count - 1; i >= 0; i--) {
+    if (minutely) {
+      const d = new Date((nowMin - i) * 60000);
+      const v = st.minutes?.[String(nowMin - i)] || {};
+      const label = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      rows.push({ k: `${todayKey(d)} ${label}`, label, vals: series.map(([, , f]) => f(v)), v });
+      continue;
+    }
     const d = new Date(Date.now() - i * (hourly ? 3600000 : 86400000));
     const k = hourly ? d.toISOString().slice(0, 13).replace("T", " ") : todayKey(d);
     const v = (hourly ? st.hours : st.days)?.[k] || {};
@@ -482,20 +498,23 @@ function chart(st) {
   const peak = Math.max(1, ...rows.map((r) => r.vals.reduce((a, b) => a + b, 0)));
   const step = traffic ? niceBytes(peak / 4) : niceStep(peak / 4);
   const max = step * Math.ceil(peak / step);
-  const W = Math.max(280, Math.round($("#chart").clientWidth) || 1000), H = 230, L = traffic ? 62 : 44, B = 22, T = 8;
+  const W = Math.max(280, Math.round($(el).clientWidth) || 1000), H = 230, L = traffic ? 62 : 44, B = 22, T = 8;
   const bw = (W - L) / rows.length;
   const y = (v) => H - B - (v / max) * (H - B - T);
   const fmt = traffic ? size : num;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${traffic ? "Traffic" : "Requests"} per ${hourly ? "hour" : "day"}">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${traffic ? "Traffic" : "Requests"} per ${minutely ? "minute" : hourly ? "hour" : "day"}">`;
   for (let v = 0; v <= max; v += step) {
     svg += `<line class="gl" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 3}" text-anchor="end">${fmt(v)}</text>`;
   }
   const every = Math.ceil(rows.length / Math.max(3, Math.floor(W / 70)));
   rows.forEach((r, i) => {
     const x = L + i * bw + bw * 0.14, w = Math.max(1, bw * 0.72);
-    const tip = traffic
-      ? `${r.k}: ${size(r.v.bytes)} content, ${size(r.v.link_tx)} out, ${size(r.v.link_rx)} in`
-      : `${r.k}: ${num(r.v.page)} views, ${num(r.v.refresh)} refreshes, ${num((r.v.file || 0) + (r.v.media || 0))} files/images, ${num(r.v.connects)} connections`;
+    const tip = hp
+      ? (traffic ? `${r.k}: ${size(r.v.bytes)} bait, ${size(r.v.maze_bytes)} maze, ${size(r.v.link_tx)} out, ${size(r.v.link_rx)} in`
+        : `${r.k}: ${num(r.v.page)} bait pages, ${num(r.v.maze_page)} maze pages, ${num(r.v.maze_file)} maze files, ${num(r.v.connects)} connections`)
+      : traffic
+        ? `${r.k}: ${size(r.v.bytes)} content, ${size(r.v.link_tx)} out, ${size(r.v.link_rx)} in`
+        : `${r.k}: ${num(r.v.page)} views, ${num(r.v.refresh)} refreshes, ${num((r.v.file || 0) + (r.v.media || 0))} files/images, ${num(r.v.connects)} connections`;
     let base = 0;
     svg += `<g><title>${tip}</title>`;
     series.forEach(([c], j) => {
@@ -508,7 +527,7 @@ function chart(st) {
     svg += `</g>`;
     if (i % every === 0) svg += `<text x="${x + w / 2}" y="${H - 6}" text-anchor="middle">${r.label}</text>`;
   });
-  $("#chart").innerHTML = svg + "</svg>";
+  $(el).innerHTML = svg + "</svg>";
 }
 
 function niceBytes(raw) {
@@ -625,6 +644,8 @@ const HP_FIELDS = [
   ["node", "announce_interval", "number", "Announce every", "Minutes, 0 = only at start"],
   ["honeypot", "traps", "text", "Trap pages", "Comma separated, * at the end = everything below (e.g. /page/trap/*). Opening one gets the visitor caught"],
   ["honeypot", "mode", "select:page,silent,tarpit,maze=maze pages,maze_files=maze files,maze_both=maze both", "Answer caught visitors with", "page: blocked page with the reason; silent: dropped; tarpit: no answers; maze: endless small fake pages, fake file downloads or both, never refused: the crawler keeps busy here instead of on your real nodes"],
+  ["honeypot", "slow_maze", "select:off,fixed=fixed delay,adaptive=adaptive delay", "Slow maze", "Maze answers sent late: a crawler's page budget costs it more time. Adaptive: just before the visitor's request times out (worked out from the link's round trip, about 10 s); fixed: the seconds below. Too long and the crawler times out without the page"],
+  ["honeypot", "slow_seconds", "number", "Slow maze: fixed delay, seconds", "Used with fixed delay; NomadNet clients wait about 11 s at least"],
   ["honeypot", "reason", "text", "Reason for caught visitors", "Shown with the page mode"],
   ["honeypot", "to_blocklist", "bool", "Put caught visitors in the blocklist", "Off: an identified crawler stays caught on the honeypots only (the maze or tarpit keeps going, it is listed in Known crawlers). On: it also goes into the Blocklist"],
   ["honeypot", "autoblock", "bool", "Block crawler-like visitors", "Besides the traps: block link hoppers (a new link for every page) and links opening many pages, fast or over an hour"],
@@ -780,7 +801,7 @@ document.addEventListener("click", async (e) => {
   if (!ul) return;
   try {
     await api(`/api/node/${encodeURIComponent(ul.dataset.node)}/unblock_link`, { link: ul.dataset.unblocklink });
-    toast("Link unblocked");
+    toast(ul.dataset.maze ? "Released from the maze" : "Link unblocked");
   } catch (err) {
     toast("Error: " + err.message);
   }
@@ -1049,6 +1070,9 @@ $("#honeypot-btn").addEventListener("click", async () => {
 // ---- honeypot tab ----
 
 let hpFilter = "all";
+let hpAll = [], crawlerRows = [];   // what the two lists show, for Export as text
+const hpShown = (p) => hpFilter === "all" || (hpFilter === "bad" && (p.state === "caught" || p.state === "blocked"))
+  || (hpFilter === "online" && p.online) || (hpFilter === "id" && p.who) || (hpFilter === "anon" && !p.who);
 let hpOrder = "newest";
 // the server keeps up to 60 distinct pages per connection
 const HP_PAGES = 60;
@@ -1082,24 +1106,37 @@ document.addEventListener("click", (e) => {
   loadHoneypot();
 });
 
-async function loadCrawlers() {
-  let items = {};
+async function fetchCrawlers() {
   try {
-    items = (await api("/api/honeypot/crawlers")).items || {};
+    return (await api("/api/honeypot/crawlers")).items || {};
   } catch (e) {
-    return;
+    return null;
   }
-  const rows = Object.entries(items).sort((a, b) => (b[1].last || 0) - (a[1].last || 0));
+}
+
+async function loadCrawlers() {
+  const items = await fetchCrawlers();
+  const anchor = hpAnchor();
+  renderCrawlers(items);
+  hpRestore(anchor);
+}
+
+function renderCrawlers(items) {
+  if (!items) return;
+  const hidden = Object.values(items).filter((c) => c.hidden).length;
+  const rows = Object.entries(items).filter(([, c]) => !c.hidden).sort((a, b) => (b[1].last || 0) - (a[1].last || 0));
+  crawlerRows = rows;
   $("#hp-crawlers").innerHTML = rows.length
     ? `<div class="table-wrap"><table><tr><th>Crawler</th><th>Honeypots</th><th class="n">Visits</th><th class="n">Caught</th><th class="n">First seen</th><th class="n">Last seen</th><th></th></tr>${rows.map(([who, c]) => {
       const hps = Object.values(c.honeypots || {});
       const back = hps.length > 1 || c.visits > 1;
-      return `<tr><td><span class="who">${esc(who)}</span>${back ? ` <span class="flag bad">came back</span>` : ""}
+      return `<tr data-k="cr|${esc(who)}"><td><span class="who">${esc(who)}</span>${back ? ` <span class="flag bad">came back</span>` : ""}
           ${c.name ? `<div class="hp-name">${esc(c.name)}</div>` : ""}${c.identity ? `<div class="muted small mono">identity ${esc(c.identity)}</div>` : ""}</td>
-        <td>${hps.map((h) => `<div>${esc(h.name)} <span class="muted small">${num(h.visits)} ${h.visits === 1 ? "visit" : "visits"}, last ${when(h.last)}</span></div>`).join("")}</td>
+        <td>${hps.map((h) => `<div>${esc(h.name)} <span class="muted small">${num(h.visits)} ${h.visits === 1 ? "visit" : "visits"}, last ${when(h.last)}</span>${took(h) ? `<div class="small maze-text">took ${took(h)}</div>` : ""}</div>`).join("")}</td>
         <td class="n">${num(c.visits)}</td><td class="n">${num(c.caught)}</td><td class="n">${whenCell(c.first)}</td><td class="n">${whenCell(c.last)}</td>
         <td class="n">${blocked[who] ? bhBtn(who, c.identity) : blockBtn(who, c.name, "", c.identity)} <button class="btn small ghost" data-forget="${esc(who)}" title="Remove it from this list (not from the blocklist)">Forget</button></td></tr>`;
     }).join("")}</table></div>`
+    : hidden ? `<div class="empty">List cleared: ${num(hidden)} known ${hidden === 1 ? "crawler" : "crawlers"} kept in the file, still caught. One that comes back shows here again with all its data.</div>`
     : `<div class="empty">No crawler caught yet. Identified crawlers the honeypots catch are listed here, and kept.</div>`;
 }
 
@@ -1111,15 +1148,102 @@ document.addEventListener("click", async (e) => {
   loadCrawlers();
 });
 
+// ---- honeypot stats: one block like Stats, all the honeypots added up or one of them ----
+
+let hpStatsNode = "all", hpDays = 0, hpChartMode = "requests", hpLast = null, hpPeers = [];
+
+// caught peers, each LXMF address once on all the honeypots (a link counts alone when it did not identify)
+const caughtPeers = (peers) => new Set(peers.filter((p) => p.caught && p.caught !== "blocked by hand")
+  .map((p) => p.who || `${p.node}|${p.link}`)).size;
+
+function addUp(into, from) {
+  for (const [k, v] of Object.entries(from || {})) {
+    if (typeof v === "number") into[k] = (into[k] || 0) + v;
+    else if (v && typeof v === "object") addUp(into[k] || (into[k] = {}), v);
+  }
+  return into;
+}
+
+async function loadHpStats(nodes) {
+  const data = await fetchHpStats(nodes);
+  const anchor = hpAnchor();
+  renderHpStats(nodes, data);
+  hpRestore(anchor);
+}
+
+async function fetchHpStats(nodes) {
+  if (!nodes.some((n) => n.id === hpStatsNode)) hpStatsNode = "all";
+  const st = { totals: {}, days: {}, hours: {}, minutes: {} }, s = {};
+  for (const n of nodes.filter((x) => hpStatsNode === "all" || x.id === hpStatsNode)) {
+    try {
+      const d = await api(`/api/stats?node=${encodeURIComponent(n.id)}`);
+      addUp(st.totals, d.stats.totals);
+      addUp(st.days, d.stats.days);
+      addUp(st.hours, d.stats.hours);
+      addUp(st.minutes, d.stats.minutes);
+      addUp(s, d.node.stats);
+    } catch (e) { /* login */ }
+  }
+  return { st, s };
+}
+
+function renderHpStats(nodes, { st, s }) {
+  const sel = $("#hp-stats-node");
+  sel.innerHTML = `<option value="all">All honeypots (${nodes.length})</option>`
+    + nodes.map((n) => `<option value="${esc(n.id)}">${esc(n.name)}</option>`).join("");
+  sel.value = hpStatsNode;
+  const caught = caughtPeers(hpPeers.filter((p) => hpStatsNode === "all" || p.node === hpStatsNode));
+  const t = st.totals, today = st.days[todayKey()] || {};
+  $("#hp-req").innerHTML = cells([
+    [num((t.maze || 0) - (t.maze_files || 0)), "fake maze pages", "amber"],
+    [num(t.maze_files), "fake maze files"],
+    [num((today.maze_page || 0) + (today.maze_file || 0)), "maze today"],
+    [num(s.views), "bait page views"],
+    [num(s.files), "bait downloads"],
+    [num(t.connects), "connections"],
+    [num(t.crawler_links), "crawler-like links"],
+    [num(caught), "caught"],
+  ]);
+  $("#hp-traffic").innerHTML = cells([
+    [size(t.maze_bytes), "maze sent", "amber"],
+    [size(today.maze_bytes), "maze sent today"],
+    [size(t.bytes), "bait content sent"],
+    [size(t.link_tx), "link traffic out"],
+    [size(t.link_rx), "link traffic in"],
+    [size(t.connects ? (t.link_tx + t.link_rx) / t.connects : 0), "per connection"],
+  ]);
+  hpLast = st;
+  hpChart();
+}
+
+const hpChart = () => hpLast && chart(hpLast, { el: "#hp-chart", legend: "#hp-legend", mode: hpChartMode, days: hpDays, honeypot: true });
+
+$("#hp-stats-node").addEventListener("change", (e) => { hpStatsNode = e.target.value; loadHpStats(hpNodes()); });
+$$("#hp-range button").forEach((b) => b.addEventListener("click", () => {
+  hpDays = Number(b.dataset.days);
+  $$("#hp-range button").forEach((x) => x.classList.toggle("active", x === b));
+  hpChart();
+}));
+$$("#hp-chart-mode button").forEach((b) => b.addEventListener("click", () => {
+  hpChartMode = b.dataset.mode;
+  $$("#hp-chart-mode button").forEach((x) => x.classList.toggle("active", x === b));
+  hpChart();
+}));
+window.addEventListener("resize", () => { if (tab === "honeypot") hpChart(); });
+
 async function loadHoneypot() {
   if (!overview) await loadOverview();
   const nodes = hpNodes();
-  const caught = nodes.reduce((a, n) => a + (n.caught || 0), 0);
   const autoBlocked = Object.values(blocked).filter((b) => String(b.via || "").startsWith("auto")).length;
   let peers = [];
   try {
     peers = (await api("/api/honeypot/peers?limit=5000")).items || [];
   } catch (e) { /* login */ }
+  hpPeers = peers;
+  const statsData = await fetchHpStats(nodes);
+  const crawlerItems = await fetchCrawlers();
+  const anchor = hpAnchor();
+  const caught = caughtPeers(peers);
   const identified = new Set(peers.filter((p) => p.who).map((p) => p.who)).size;
   const mazed = peers.filter((p) => p.maze);
   const mazeTime = mazed.reduce((a, p) => a + (p.maze_last - p.maze_first), 0);
@@ -1136,24 +1260,17 @@ async function loadHoneypot() {
   ]);
   $("#hp-nodes").innerHTML = nodes.length ? nodes.map(nodeCard).join("")
     : `<div class="panel empty">No honeypot yet. Create one: it starts stopped, press Start to put the bait online.</div>`;
-  const counters = [];
-  for (const n of nodes) {
-    try {
-      const [req, traffic] = counterCells(await api(`/api/stats?node=${encodeURIComponent(n.id)}`));
-      const who = nodes.length > 1 ? ` · ${esc(n.name)}` : "";
-      counters.push(`<div class="kgroup"><div class="kgroup-title">Requests${who}</div><div class="strip">${req}</div></div>
-        <div class="kgroup"><div class="kgroup-title">Traffic${who}</div><div class="strip">${traffic}</div></div>`);
-    } catch (e) { /* login */ }
-  }
-  $("#hp-counters").innerHTML = counters.join("");
-  loadCrawlers();
+  renderHpStats(nodes, statsData);
+  renderCrawlers(crawlerItems);
   const now = Date.now() / 1000;
-  // one row per identified peer (crawlers open a new link for every page), one per link otherwise
+  // one row per identified peer on all the honeypots (crawlers open a new link for every page), one per link otherwise
   const groups = new Map();
   for (const p of peers) {
-    const key = p.who ? `${p.node}|${p.who}` : `${p.node}|link ${p.link}|${p.since}`;
+    const key = p.who ? `who|${p.who}` : `${p.node}|link ${p.link}|${p.since}`;
     const g = groups.get(key) || { ...p, key, links: 0, requests: 0, tries: 0, first: p.since, last: 0, online: false, pages: [], tried: [], trap: [], files: [], caught: "", mode: "",
-                                   maze: 0, maze_files: 0, maze_bytes: 0, maze_time: 0, maze_last: 0 };
+                                   maze: 0, maze_files: 0, maze_bytes: 0, maze_time: 0, maze_last: 0, maze_wait: 0, maze_got: [], hps: [] };
+    if (!g.hps.includes(p.node_name)) g.hps.push(p.node_name);
+    for (const x of p.maze_got || []) if (g.maze_got.length < HP_PAGES) g.maze_got.push(x);
     g.links += 1;
     g.requests += p.requests || 0;
     g.tries += p.tries || 0;
@@ -1161,6 +1278,7 @@ async function loadHoneypot() {
       g.maze += p.maze;
       g.maze_files += p.maze_files || 0;
       g.maze_bytes += p.maze_bytes || 0;
+      g.maze_wait += p.maze_wait || 0;
       g.maze_time += p.maze_last - p.maze_first;
       g.maze_last = Math.max(g.maze_last, p.maze_last);
     }
@@ -1183,25 +1301,28 @@ async function loadHoneypot() {
     const b = p.who && blocked[p.who];
     p.state = p.caught && p.caught !== "blocked by hand" ? "caught" : b || p.mode ? "blocked" : p.online ? "online" : "browsed";
   }
+  hpAll = all;
   $("#hp-paused").hidden = !hpPaused();
-  if (hpPaused()) return renderHpForm();
+  if (hpPaused()) {
+    renderHpForm();
+    return hpRestore(anchor);
+  }
   const counts = { all: all.length, bad: all.filter((p) => p.state === "caught" || p.state === "blocked").length,
                    online: all.filter((p) => p.online).length, id: all.filter((p) => p.who).length, anon: all.filter((p) => !p.who).length };
   $("#hp-filter").innerHTML = [["all", "All"], ["bad", "Caught or blocked"], ["online", "Online"], ["id", "Identified"], ["anon", "Not identified"]]
     .map(([k, l]) => `<button data-hpf="${k}" class="${hpFilter === k ? "active" : ""}">${l} <span class="muted">${counts[k]}</span></button>`).join("");
   $("#hp-order").innerHTML = [["newest", "Newest first"], ["oldest", "Oldest first"]]
     .map(([k, l]) => `<button data-hpo="${k}" class="${hpOrder === k ? "active" : ""}">${l}</button>`).join("");
-  const rows = all.filter((p) => hpFilter === "all" || (hpFilter === "bad" && (p.state === "caught" || p.state === "blocked"))
-    || (hpFilter === "online" && p.online) || (hpFilter === "id" && p.who) || (hpFilter === "anon" && !p.who));
-  const chips = (list, cls) => list.map((x) => `<span class="chip ${cls}">${esc(x.replace(/^\/(page|file)\//, ""))}</span>`).join("");
+  const rows = all.filter(hpShown);
+  const tip = (cls, x) => cls === "maze" ? ` title="${/^file /.test(x) ? "Fake file from the maze" : "Fake page from the maze"}"` : "";
+  const chips = (list, cls) => list.map((x) => `<span class="chip ${cls}"${tip(cls, x)}>${esc(x.replace(/^\/(page|file)\//, ""))}</span>`).join("");
   const many = nodes.length > 1;
-  const anchor = hpAnchor();
   $("#hp-peers").innerHTML = rows.length ? `<div class="hp-row hp-head"><div>Status</div><div>Peer and what it did</div><div class="hp-nums">Requests</div><div></div></div>` + rows.map((p) => {
     const b = p.who && blocked[p.who];
     const why = p.caught ? `${p.caught}${p.mode ? " · " + p.mode : ""}` : b ? `${b.reason || "blocked"} · ${blockMode(b, p.node)}` : "";
     const actions = p.who ? (b ? `${!b.scope || b.scope === "all" ? "" : widenBtn(p.who)} <button class="btn-unblock" data-unblock="${esc(p.who)}">Unblock</button> ${bhBtn(p.who, p.identity)}`
       : `<button class="btn-block" data-block="${esc(p.who)}" data-name="${esc(p.name || "")}" data-node="${esc(p.node)}">Block</button> ${bhBtn(p.who, p.identity)}`) : linkBtns(p);
-    const meta = [p.identity ? `identity ${esc(p.identity)}` : "", many ? esc(p.node_name) : "",
+    const meta = [p.identity ? `identity ${esc(p.identity)}` : "", many ? `on ${esc(p.hps.join(", "))}` : "",
                   b && b.scope && b.scope !== "all" ? `blocked on ${esc(scopeText(b.scope))}` : ""].filter(Boolean).join(" · ");
     return `<div class="hp-row" data-k="${esc(p.key)}">
       <div class="hp-state"><span class="badge ${p.state}">${p.state}</span>
@@ -1212,29 +1333,33 @@ async function loadHoneypot() {
         <div>${p.who ? `<span class="who">${esc(p.who)}</span>${p.name ? ` <span class="hp-name">${esc(p.name)}</span>` : ""}` : `<span class="muted">Not identified</span> <span class="who muted">link ${esc(p.link)}</span>`}</div>
         <div class="muted small">${meta}</div>
         ${why ? `<div class="small bad-text">${esc(why)}</div>` : ""}
-        ${p.maze ? `<div class="small maze-text">In the maze: ${mazeWhat(p)} in ${span(p.maze_time)}, ${size(p.maze_bytes)} · last ${p.online && now - p.maze_last < 90 ? "now" : when(p.maze_last)}</div>` : ""}
-        ${p.pages.length || p.tried.length || p.trap.length || p.files.length ? `<details class="hp-pages" data-k="${esc(p.who || p.link)}"${hpOpen.has(p.who || p.link) ? " open" : ""}><summary>${p.pages.length}${p.pages.length >= HP_PAGES ? "+" : ""} ${p.pages.length === 1 ? "page" : "pages"}${p.trap.length ? `, ${p.trap.length} ${p.trap.length === 1 ? "trap" : "traps"}` : ""}${p.files.length ? `, ${p.files.length} ${p.files.length === 1 ? "file" : "files"} downloaded` : ""}${p.tried.length ? `, ${p.tried.length} blocked` : ""}${!p.pages.length && p.tried.length && p.state === "blocked" ? ` <span class="bad-text">(Already in blocklist: request blocked!)</span>` : ""}</summary>${chips(p.pages, "")}${chips(p.trap, "trap")}${chips(p.files, "file")}${chips(p.tried, "bad")}</details>` : ""}
+        ${p.maze ? `<div class="small maze-text">In the maze: ${mazeWhat(p)} in ${span(p.maze_time)}, ${size(p.maze_bytes)}${p.maze_wait ? ` · held ${span(p.maze_wait)} by the slow maze` : ""} · last ${p.online && now - p.maze_last < 90 ? "now" : when(p.maze_last)}</div>` : ""}
+        ${p.pages.length || p.tried.length || p.trap.length || p.files.length || p.maze_got.length ? `<details class="hp-pages" data-k="${esc(p.who || p.link)}"${hpOpen.has(p.who || p.link) ? " open" : ""}><summary>${p.pages.length}${p.pages.length >= HP_PAGES ? "+" : ""} ${p.pages.length === 1 ? "page" : "pages"}${p.trap.length ? `, ${p.trap.length} ${p.trap.length === 1 ? "trap" : "traps"}` : ""}${p.files.length ? `, ${p.files.length} ${p.files.length === 1 ? "file" : "files"} downloaded` : ""}${p.tried.length ? `, ${p.tried.length} blocked` : ""}${p.maze_got.length ? `, ${p.maze_got.length}${p.maze_got.length >= HP_PAGES ? "+" : ""} in the maze` : ""}${!p.pages.length && p.tried.length && p.state === "blocked" ? ` <span class="bad-text">(Already in blocklist: request blocked!)</span>` : ""}</summary>${chips(p.pages, "")}${chips(p.trap, "trap")}${chips(p.files, "file")}${chips(p.tried, "bad")}${chips(p.maze_got, "maze")}</details>` : ""}
       </div>
       <div class="hp-nums"><b>${num(p.requests)}</b> ${p.requests === 1 ? "request" : "requests"}${p.tries ? `<div class="bad-text small">+${num(p.tries)} blocked</div>` : ""}<div class="muted small">${num(p.links)} ${p.links === 1 ? "link" : "links"}</div></div>
       <div class="hp-act">${actions}</div>
     </div>`;
   }).join("") : `<div class="empty">${all.length ? "Nothing with this filter." : "Nobody has reached a honeypot yet."}</div>`;
-  hpRestore(anchor);
   renderHpForm();
+  hpRestore(anchor);
 }
 
 // the row at the top of the screen stays where it is when rows are added or grow above it
+// the first thing on screen in the Honeypot tab (a peer or crawler row, else a fixed heading),
+// put back at the same height after a redraw: new rows above never move what is being read
+const HP_ANCHORS = "#tab-honeypot [data-k], #tab-honeypot h2, #tab-honeypot .kgroup-title, #tab-honeypot .panel-head";
 function hpAnchor() {
-  for (const r of document.querySelectorAll("#hp-peers .hp-row[data-k]")) {
-    const top = r.getBoundingClientRect().top;
-    if (top >= 0) return { k: r.dataset.k, top };
+  if (tab !== "honeypot" || window.scrollY < 1) return null;
+  for (const el of document.querySelectorAll(HP_ANCHORS)) {
+    const top = el.getBoundingClientRect().top;
+    if (top >= 0) return { k: el.dataset.k, el, top };
   }
   return null;
 }
 function hpRestore(a) {
   if (!a) return;
-  const r = [...document.querySelectorAll("#hp-peers .hp-row[data-k]")].find((x) => x.dataset.k === a.k);
-  if (r) window.scrollBy(0, r.getBoundingClientRect().top - a.top);
+  const el = a.k ? [...document.querySelectorAll("#tab-honeypot [data-k]")].find((x) => x.dataset.k === a.k) : (a.el.isConnected ? a.el : null);
+  if (el) window.scrollBy(0, el.getBoundingClientRect().top - a.top);
 }
 
 function mazeWhat(p) {
@@ -1243,8 +1368,12 @@ function mazeWhat(p) {
 }
 
 // a link can be blocked only while it is connected: once closed, it comes back with a new id
+function isMaze(mode) { return /^maze/.test(mode || ""); }
+function releaseBtn(link, node) { return `<button class="btn-unblock" data-unblocklink="${esc(link)}" data-node="${esc(node)}" data-maze="1" title="It keeps getting answers either way: this takes it out of the maze, back to the real pages">Release from maze</button>`; }
+
 function linkBtns(p) {
   if (!p.online) return `<span class="muted small" title="This connection is closed: it cannot be blocked any more. If the peer comes back it gets a new link id.">disconnected</span>`;
+  if (isMaze(p.mode)) return releaseBtn(p.link, p.node);
   if (p.mode) return `<button class="btn-unblock" data-unblocklink="${esc(p.link)}" data-node="${esc(p.node)}">Unblock link</button>`;
   return `<button class="btn-block" data-blocklink="${esc(p.link)}" data-node="${esc(p.node)}" title="Block this connection until it disconnects">Block link</button>`;
 }
@@ -1310,6 +1439,80 @@ $("#bl-export").addEventListener("click", async () => {
     toast("Error: " + err.message);
   }
 });
+
+// ---- honeypot lists as text ----
+
+const fullTime = (t) => { const d = new Date(t * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const fileStamp = () => fullTime(Date.now() / 1000).slice(0, 16).replace(/[-: ]/g, "");
+
+function saveText(name, lines) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/plain;charset=utf-8" }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(`Saved ${name}`);
+}
+
+const shortPath = (x) => x.replace(/^\/(page|file)\//, "");
+
+function peersText() {
+  const rows = hpAll.filter(hpShown);
+  const filter = { all: "all", bad: "caught or blocked", online: "online", id: "identified", anon: "not identified" }[hpFilter];
+  const out = [`# nomad-server honeypot peer connections, ${fullTime(Date.now() / 1000)}`,
+               `# ${rows.length} ${rows.length === 1 ? "peer" : "peers"}, filter: ${filter}, ${hpOrder === "oldest" ? "oldest" : "newest"} first`];
+  for (const p of rows) {
+    const b = p.who && blocked[p.who];
+    const who = p.who ? `LXMF ${p.who}${p.name ? ` (${p.name})` : ""}` : `not identified, link ${p.link}`;
+    out.push("", `${p.state.toUpperCase()}  ${who}`);
+    if (p.identity) out.push(`  identity  ${p.identity}`);
+    out.push(`  on        ${p.hps.join(", ")}`,
+             `  arrived   ${fullTime(p.first)}, ${p.online ? "online now" : `left ${fullTime(p.last)}`}`,
+             `  activity  ${num(p.requests)} ${p.requests === 1 ? "request" : "requests"}${p.tries ? `, +${num(p.tries)} blocked` : ""}, ${num(p.links)} ${p.links === 1 ? "link" : "links"}`);
+    const why = p.caught ? `${p.caught}${p.mode ? " · " + p.mode : ""}` : b ? `${b.reason || "blocked"} · ${blockMode(b, p.node)}` : "";
+    if (why) out.push(`  why       ${why}`);
+    if (p.maze) out.push(`  maze      ${mazeWhat(p)} in ${span(p.maze_time)}, ${size(p.maze_bytes)}${p.maze_wait ? `, held ${span(p.maze_wait)} by the slow maze` : ""}, last ${fullTime(p.maze_last)}`);
+    for (const [label, list] of [["pages", p.pages], ["traps", p.trap], ["files", p.files], ["refused", p.tried], ["maze got", p.maze_got]]) {
+      if (list.length) out.push(`  ${label.padEnd(9)} ${list.map(shortPath).join(", ")}`);
+    }
+  }
+  return out;
+}
+
+// "42 requests, 31.2 KB sent (18 maze)": what a crawler took from one honeypot
+function took(h) {
+  if (!h.sent && !h.requests) return "";   // not counted yet, or nothing kept of it
+  return `${num(h.requests || 0)} ${h.requests === 1 ? "request" : "requests"}, ${size(h.sent)} sent${h.maze ? ` (${num(h.maze)} maze)` : ""}`;
+}
+
+function crawlersText() {
+  const out = [`# nomad-server known crawlers, ${fullTime(Date.now() / 1000)}`,
+               `# ${crawlerRows.length} ${crawlerRows.length === 1 ? "crawler" : "crawlers"}, last seen first`];
+  for (const [who, c] of crawlerRows) {
+    const hps = Object.values(c.honeypots || {});
+    const flags = [hps.length > 1 || c.visits > 1 ? "came back" : "", blocked[who] ? "in the blocklist" : ""].filter(Boolean);
+    out.push("", `LXMF ${who}${c.name ? ` (${c.name})` : ""}${flags.length ? `  [${flags.join(", ")}]` : ""}`);
+    if (c.identity) out.push(`  identity    ${c.identity}`);
+    out.push(`  visits      ${num(c.visits)}, caught ${num(c.caught)}`,
+             `  first seen  ${fullTime(c.first)}`, `  last seen   ${fullTime(c.last)}`);
+    for (const h of hps) out.push(`  honeypot    ${h.name}: ${num(h.visits)} ${h.visits === 1 ? "visit" : "visits"}${took(h) ? ", " + took(h) : ""}, last ${fullTime(h.last)}`);
+  }
+  return out;
+}
+
+$("#hp-export").addEventListener("click", () => saveText(`nomad-server-honeypot-peers-${fileStamp()}.txt`, peersText()));
+$("#cr-hide").addEventListener("click", async () => {
+  if (!(await ask("Clear list", "<p>The known crawlers leave this list. <b>Nothing is deleted</b>: they stay in the file and stay caught (the maze goes on), and a crawler that comes back shows here again with all its data, old and new.</p>", "Clear list"))) return;
+  try {
+    const r = await api("/api/honeypot/crawlers/hide", {});
+    toast(`${num(r.hidden)} hidden, kept in the file`);
+  } catch (err) {
+    toast("Error: " + err.message);
+  }
+  loadCrawlers();
+});
+$("#cr-export").addEventListener("click", () => saveText(`nomad-server-known-crawlers-${fileStamp()}.txt`, crawlersText()));
 
 // ---- backup and identity ----
 

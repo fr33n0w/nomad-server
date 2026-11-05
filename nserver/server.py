@@ -349,12 +349,27 @@ class Server:
         self._save_crawlers(text)
         log.line("Forgot crawler LXMF %s" % who)
 
+    def hide_crawlers(self):
+        """Clear list: the known crawlers leave the list in the web UI only. Nothing is deleted,
+        they stay caught, and one that comes back shows again with all its data."""
+        with self.lock:
+            n = 0
+            for c in self.crawlers().values():
+                if not c.get("hidden"):
+                    c["hidden"] = True
+                    n += 1
+            text = json.dumps(self._crawlers, indent=1, sort_keys=True)
+        self._save_crawlers(text)
+        log.line("Known crawlers list cleared in the web UI (%d hidden, kept in the file)" % n)
+        return n
+
     def crawler_seen(self, who, node, name="", identity="", caught=False):
         """A crawler identified on a honeypot (caught now, or caught before and back)."""
         now = time.time()
         with self.lock:
             c = self.crawlers().setdefault(who, {"first": now, "visits": 0, "caught": 0, "honeypots": {}})
             c["last"] = now
+            c.pop("hidden", None)          # back again: shown again, with everything it did before
             c["name"] = name or c.get("name", "")
             c["identity"] = identity or c.get("identity", "")
             # honeypots by address: a new honeypot is a new address
@@ -368,6 +383,54 @@ class Server:
                 hp["visits"] += 1
             text = json.dumps(self._crawlers, indent=1, sort_keys=True)
         self._save_crawlers(text)
+
+    def crawler_took(self, who, node, requests, nbytes, maze):
+        """What a known crawler took from a honeypot on one link: requests, bytes sent
+        (bait pages and maze together), fake maze answers. Added when the link closes."""
+        with self.lock:
+            c = self.crawlers().get(who)
+            if not c:
+                return
+            hp = c["honeypots"].setdefault(node.address, {"first": time.time(), "visits": 0, "name": node.name, "last": time.time()})
+            for k, v in (("requests", requests), ("sent", nbytes), ("maze", maze)):
+                hp[k] = hp.get(k, 0) + v
+            text = json.dumps(self._crawlers, indent=1, sort_keys=True)
+        self._save_crawlers(text)
+
+    def backfill_crawler_traffic(self):
+        """Once: crawlers known before the traffic was counted get it from the honeypots' saved history."""
+        if getattr(self, "_backfilled", False):
+            return
+        self._backfilled = True
+        history = {n.address: n.peers() for n in self.nodes.values() if n.is_honeypot and n.address}
+        # removed honeypots keep their history in the trash: their address comes from their identity
+        try:
+            removed = os.listdir(self.trash_dir)
+        except OSError:
+            removed = []
+        for entry in removed:
+            folder = os.path.join(self.trash_dir, entry)
+            try:
+                ident = RNS.Identity.from_file(os.path.join(folder, "identity"))
+                addr = RNS.hexrep(RNS.Destination.hash_from_name_and_identity("nomadnetwork.node", ident), delimit=False)
+                with open(os.path.join(folder, "data", "peers.json"), encoding="utf-8") as f:
+                    history.setdefault(addr, json.load(f))
+            except Exception:
+                continue
+        changed = False
+        with self.lock:
+            for who, c in self.crawlers().items():
+                for addr, hp in c.get("honeypots", {}).items():
+                    if "sent" in hp or addr not in history:
+                        continue
+                    recs = [r for r in history[addr] if r.get("who") == who]
+                    hp["requests"] = sum(r.get("requests", 0) for r in recs)
+                    hp["sent"] = sum(r.get("bytes", 0) + r.get("maze_bytes", 0) for r in recs)
+                    hp["maze"] = sum(r.get("maze", 0) for r in recs)
+                    changed = True
+            text = json.dumps(self._crawlers, indent=1, sort_keys=True) if changed else None
+        if text:
+            self._save_crawlers(text)
 
     def _save_crawlers(self, text):
         try:

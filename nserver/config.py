@@ -54,6 +54,8 @@ NODE_DEFAULTS = {
         "hop_seconds": "7200",
         "long_pages": "60",
         "long_seconds": "3600",
+        "slow_maze": "off",
+        "slow_seconds": "8",
     },
     "footer": {
         "visits": "yes",
@@ -138,6 +140,11 @@ hop_links = 6
 hop_seconds = 7200
 long_pages = 60
 long_seconds = 3600
+# slow maze: every fake page or file is answered late, so a crawler's page budget costs it
+# more time: off, fixed (slow_seconds) or adaptive (just before the visitor's request
+# times out, worked out from the link's round trip time)
+slow_maze = off
+slow_seconds = 8
 
 [footer]
 # Lines added at the bottom of .mu pages (not to partials loaded inside other pages)

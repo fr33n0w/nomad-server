@@ -9,6 +9,8 @@ Tanti nodi [NomadNet](https://github.com/markqvist/NomadNet) in un solo processo
 
 [![License](https://img.shields.io/badge/license-Reticulum%20License-blue.svg)](LICENSE) · [English](README.md)
 
+**Guida di installazione (PDF):** [Italiano](docs/nomad-server_Guida_Installazione_IT.pdf) · [English](docs/nomad-server_Install_Guide_EN.pdf) - Windows, Linux, Raspberry Pi, venv e Docker, il primo nodo, gli aggiornamenti e gli errori comuni.
+
 ![Overview](docs/overview.png)
 
 ## Cosa fa
@@ -211,7 +213,7 @@ Se la porta della web UI è già occupata (per esempio da un altro nomad-server)
 | | |
 |---|---|
 | ![Stats](docs/stats.png) | ![Logs](docs/logs.png) |
-| **Stats**: richieste e traffico per nodo, per ora o giorno, pagine e file più visti, visitatori identificati | **Logs**: in diretta, un colore per nodo, filtri per pagine, visitatori, file e avvisi |
+| **Stats**: richieste e traffico per nodo su 1 ora (al minuto), 24 ore, 7, 14, 30 o 90 giorni, pagine e file più visti, visitatori identificati | **Logs**: in diretta, un colore per nodo, filtri per pagine, visitatori, file e avvisi |
 
 - **Overview**: i nodi con il grafico delle richieste, le interfacce Reticulum, i client collegati adesso
 - **Settings**: impostazioni di server, web UI e nodi, identità, backup e ripristino, blocklist, nodi rimossi, icone
@@ -293,7 +295,7 @@ I peer che si identificano compaiono con l'indirizzo LXMF e, se ne hanno annunci
 
 ![Honeypot](docs/honeypot.png)
 
-Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto che non finisce mai e non rifiuta mai una richiesta (pagine finte, file finti da scaricare o entrambi), così il crawler gira finché non si stacca, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
+Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto che non finisce mai e non rifiuta mai una richiesta (pagine finte, file finti da scaricare o entrambi), così il crawler gira finché non si stacca, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Tutte e due le liste hanno **Export as text**: le connessioni come le vedi (filtro e ordine), i crawler conosciuti con ogni honeypot visitato e quanto ne hanno preso (richieste, byte inviati, risposte del maze). **Clear list** svuota i crawler conosciuti solo nella web UI: non si cancella niente, restano catturati, e uno che torna ricompare con tutti i suoi dati. Un peer preso da più honeypot è una riga sola che li nomina tutti, con le pagine e i file del maze che ha preso, per nome. Le statistiche sommano tutti gli honeypot, o ne mostrano uno, come la scheda Stats: richieste, traffico e grafico, con il maze contato a parte rispetto alle pagine esca. **Slow maze** (impostazioni dell'honeypot): ogni pagina o file finto risponde in ritardo, così il budget di pagine di un crawler gli costa più tempo. *Adaptive* risponde poco prima che la richiesta del visitatore scada (calcolato dal tempo di andata e ritorno del link, circa 10 s con il timeout predefinito di Reticulum); *fixed* aspetta i secondi che scegli. Oltre il timeout del client il crawler non riceve niente da seguire. Il tempo trattenuto si vede nella lista dei peer. **Release from maze** toglie dal maze un link che non si è identificato: riceve di nuovo le pagine vere finché non apre di nuovo una trappola; un link nuovo riparte da zero. Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
 
 ## Docker
 
@@ -308,13 +310,28 @@ La UI è sulla porta 8484, tutto il resto in `nomad-data/`: impostazioni, nodi, 
 
 Su un server Debian con tre nodi frequentati e un plugin, il processo usa circa 95 MB: circa 36 MB sono Python e Reticulum, il resto nodi, contatori e i dati del plugin. Un server vuoto usa circa 47 MB.
 
-## Novità
+## Novità della 0.1.1
 
 - Risposta maze: pagine, file o entrambi.
 - Il maze non rifiuta mai, niente limiti.
 - Pagine trappola indicate come trappole, non bloccate.
 - Lista peer: prima i nuovi o i vecchi, righe ferme.
 - Fino a 60 pagine elencate per connessione.
+- Liste honeypot: Export as text.
+- Una riga per peer su tutti gli honeypot.
+- Pagine e file del maze elencati per nome.
+- Statistiche honeypot: un blocco con grafico.
+- Slow maze: ritardo fisso o adattivo, pagine e file.
+- Guida di installazione in PDF, italiano e inglese.
+- Periodi delle statistiche: 1 ora, 24 ore, da 7 a 90 giorni.
+- Crawler conosciuti: quanto ha preso ciascuno.
+- Release from maze, per i link.
+- La scheda Honeypot resta ferma mentre arrivano righe.
+- Crawler conosciuti: Clear list (non cancella niente).
+
+## Roadmap
+
+- Honeypot con più indirizzi esca ciascuno: i crawler hanno un budget di pagine per indirizzo.
 
 ## Ringraziamenti
 

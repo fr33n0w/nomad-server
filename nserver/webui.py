@@ -295,6 +295,7 @@ class Handler(BaseHTTPRequestHandler):
                         e["name"] = peer_name(e["identity"])
                 return self.send(200, {"items": items, "reasons": srv.block_reasons(), "blackholed": sorted(srv.blackholed())})
             if p == "/api/honeypot/crawlers":
+                srv.backfill_crawler_traffic()
                 items = json.loads(json.dumps(srv.crawlers()))
                 for c in items.values():
                     if not c.get("name") and c.get("identity"):
@@ -442,6 +443,8 @@ class Handler(BaseHTTPRequestHandler):
             srv.block(data.get("who", ""), data.get("name", ""), data.get("node", ""),
                       data.get("reason", ""), data.get("mode", "page"), scope=data.get("scope") or "all")
             return {"ok": True}
+        if p == "/api/honeypot/crawlers/hide":
+            return {"ok": True, "hidden": srv.hide_crawlers()}
         if p == "/api/honeypot/forget":
             srv.forget_crawler(data.get("who", ""))
             return {"ok": True}

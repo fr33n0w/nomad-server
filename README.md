@@ -9,6 +9,8 @@ Many [NomadNet](https://github.com/markqvist/NomadNet) nodes in one process, wit
 
 [![License](https://img.shields.io/badge/license-Reticulum%20License-blue.svg)](LICENSE) · [Italiano](README.it.md)
 
+**Install guide (PDF):** [English](docs/nomad-server_Install_Guide_EN.pdf) · [Italiano](docs/nomad-server_Guida_Installazione_IT.pdf) - Windows, Linux, Raspberry Pi, venv and Docker, the first node, updates and common errors.
+
 ![Overview](docs/overview.png)
 
 ## Features
@@ -211,7 +213,7 @@ If the web UI port is already in use (for example another nomad-server), the ser
 | | |
 |---|---|
 | ![Stats](docs/stats.png) | ![Logs](docs/logs.png) |
-| **Stats**: requests and traffic per node, by hour or day, top pages and files, identified visitors | **Logs**: live, one color per node, filters for pages, visitors, files and warnings |
+| **Stats**: requests and traffic per node over 1 hour (per minute), 24 hours, 7, 14, 30 or 90 days, top pages and files, identified visitors | **Logs**: live, one color per node, filters for pages, visitors, files and warnings |
 
 - **Overview**: nodes with a requests chart, Reticulum interfaces, the clients connected now
 - **Settings**: server, web UI and node settings, identity, backup and restore, blocklist, removed nodes, shortcuts
@@ -293,7 +295,7 @@ Peers that identify are listed with their LXMF address and, when they announced 
 
 ![Honeypot](docs/honeypot.png)
 
-Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze that never runs out and is never refused (fake pages, fake file downloads or both), so a crawler walks it until it disconnects, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
+Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze that never runs out and is never refused (fake pages, fake file downloads or both), so a crawler walks it until it disconnects, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Both lists have **Export as text**: the peer connections as shown (filter and order), the known crawlers with every honeypot they visited and what they took from it (requests, bytes sent, maze answers). **Clear list** empties the known crawlers in the web UI only: nothing is deleted, they stay caught, and one that comes back shows again with all its data. A peer caught by several honeypots is one row that names them all, with the maze pages and files it took listed by name. The stats add up all the honeypots, or show one, like the Stats tab: requests, traffic and a chart, with the maze counted apart from the bait pages. **Slow maze** (honeypot settings): every fake page or file is answered late, so a crawler's page budget costs it more time. *Adaptive* answers just before the visitor's request times out (worked out from the link's round trip, about 10 s with Reticulum's default timeout); *fixed* waits the seconds you choose. Longer than the client's timeout and the crawler gets nothing to follow. The time held shows in the peer list. **Release from maze** takes a link that did not identify out of the maze: it gets the real pages again until it opens a trap again; a new link starts fresh. Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
 
 ## Docker
 
@@ -308,13 +310,28 @@ The UI is on port 8484, everything else in `nomad-data/`: settings, nodes, ident
 
 On a Debian server with three busy nodes and a plugin, the process uses about 95 MB: about 36 MB are Python and Reticulum, the rest the nodes, counters and the plugin's data. An empty server uses about 47 MB.
 
-## What's new
+## What's new in 0.1.1
 
 - Maze answers: pages, files or both.
 - Maze never refused, no rate limit.
 - Trap pages shown as traps, not blocked.
 - Peer list: newest or oldest first, rows stay still.
 - Up to 60 pages listed per connection.
+- Honeypot lists: Export as text.
+- One row per peer on all the honeypots.
+- Maze pages and files listed by name.
+- Honeypot stats: one block with a chart.
+- Slow maze: fixed or adaptive delay, pages and files.
+- Install guide PDF, English and Italian.
+- Stats periods: 1 hour, 24 hours, 7 to 90 days.
+- Known crawlers: what each one took.
+- Release from maze, for links.
+- Honeypot tab stays still while rows arrive.
+- Known crawlers: Clear list (nothing deleted).
+
+## Roadmap
+
+- Honeypots with more bait addresses each: crawlers keep a page budget per address.
 
 ## Credits
 

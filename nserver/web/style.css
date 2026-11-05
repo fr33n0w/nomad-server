@@ -166,6 +166,7 @@ html.advanced .tabs { grid-template-columns: repeat(6, 92px); }
 .chip.bad { color: var(--bad); }
 .chip.file { color: var(--cyan); }
 .chip.trap { color: var(--amber); }
+.chip.maze { color: var(--cyan); }
 @media (max-width: 720px) {
   .hp-row { grid-template-columns: 80px minmax(0, 1fr); }
   .hp-head { display: none; }
@@ -233,6 +234,9 @@ tr.total td { border-top: 1px solid var(--line); font-weight: 600; }
 .c-amber { background: var(--amber); fill: var(--amber); }
 .c-cyan { background: var(--cyan); fill: var(--cyan); }
 .c-slate { background: var(--slate); fill: var(--slate); }
+.c-bad { background: var(--bad); fill: var(--bad); }
+/* the Honeypot tab keeps what is on screen still by itself (hpAnchor): no browser scroll anchoring on top */
+#tab-honeypot { overflow-anchor: none; }
 .chart svg { display: block; width: 100%; height: auto; }
 .chart .gl { stroke: var(--line-soft); }
 .chart text { fill: var(--muted); font: 10px var(--mono); }

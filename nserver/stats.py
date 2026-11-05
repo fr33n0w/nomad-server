@@ -36,6 +36,7 @@ class Stats:
         self.dirty = False
         self.last_flush = time.time()
         self.minutes = collections.deque(maxlen=60)
+        self.minute_rows = collections.OrderedDict()   # minute -> the same counters as a day, last hour, memory only
         self.d = self.empty()
         self.load(data_dir)
 
@@ -44,7 +45,8 @@ class Stats:
         return {"since": time.time(), "paths": {k: {} for k in KINDS}, "bytes": {k: {} for k in KINDS},
                 "days": {}, "hours": {},
                 "totals": {"connects": 0, "bytes": 0, "link_rx": 0, "link_tx": 0,
-                           "denied": 0, "limited": 0, "crawler_links": 0, "blocked": 0, "unidentified": 0, "trapped": 0, "maze": 0},
+                           "denied": 0, "limited": 0, "crawler_links": 0, "blocked": 0, "unidentified": 0, "trapped": 0, "maze": 0,
+                           "maze_files": 0, "maze_bytes": 0},
                 "visitors": {}}
 
     def load(self, data_dir):
@@ -100,9 +102,19 @@ class Stats:
                     del rows[old]
         return rows[key]
 
+    def minute_row(self):
+        minute = int(time.time() // 60)
+        row = self.minute_rows.get(minute)
+        if row is None:
+            row = self.minute_rows[minute] = {}
+            while len(self.minute_rows) > 60:
+                self.minute_rows.popitem(last=False)
+        return row
+
     def add(self, **values):
-        """Adds to today (server time) and to this hour (UTC "YYYY-MM-DD HH": the browser shows its own time)."""
-        for row in (self.day(), self.bucket("hours", time.strftime("%Y-%m-%d %H", time.gmtime()), HOURS_KEPT)):
+        """Adds to today (server time), to this hour (UTC "YYYY-MM-DD HH": the browser shows its own time)
+        and to this minute (the last hour, in memory)."""
+        for row in (self.day(), self.bucket("hours", time.strftime("%Y-%m-%d %H", time.gmtime()), HOURS_KEPT), self.minute_row()):
             for k, v in values.items():
                 row[k] = row.get(k, 0) + v
 
@@ -152,6 +164,18 @@ class Stats:
                 self.add(connects=1)
             self.dirty = True
 
+    def maze(self, kind, nbytes):
+        """One fake maze page or file sent: counted apart from the real pages, per day and hour too."""
+        with self.lock:
+            t = self.d["totals"]
+            t["maze"] += 1
+            t["maze_bytes"] += nbytes
+            if kind == "file":
+                t["maze_files"] += 1
+            self.add(**{"maze_file" if kind == "file" else "maze_page": 1, "maze_bytes": nbytes})
+            self.tick(nbytes)
+            self.dirty = True
+
     def link_traffic(self, rx, tx):
         """Bytes in and out on a closed link, headers and proofs included."""
         with self.lock:
@@ -172,7 +196,9 @@ class Stats:
 
     def snapshot(self):
         with self.lock:
-            return json.loads(json.dumps(self.d))
+            snap = json.loads(json.dumps(self.d))
+            snap["minutes"] = {str(m): dict(r) for m, r in self.minute_rows.items()}
+            return snap
 
     def summary(self):
         with self.lock:

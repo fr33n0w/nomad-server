@@ -106,7 +106,8 @@ def maze_of(entry):
     if not entry.get("maze"):
         return {}
     return {"maze": entry["maze"], "maze_files": entry.get("maze_files", 0), "maze_bytes": entry.get("maze_bytes", 0),
-            "maze_first": entry["maze_first"], "maze_last": entry["maze_last"]}
+            "maze_first": entry["maze_first"], "maze_last": entry["maze_last"], "maze_got": list(entry.get("maze_got", [])),
+            "maze_wait": round(entry.get("maze_wait", 0), 1)}
 MAZE_WORDS = ("relay mesh antenna lora transport beacon gateway router node packet link announce path "
               "battery solar repeater channel frequency config backup mirror index notes draft archive").split()
 _names = {}
@@ -208,6 +209,7 @@ class Node:
         self.flagged = set()
         self.links = {}
         self.rate = {}
+        self.slow_pending = 0
         self.started = None
         self.last_announce = None
         self.last_rescan = 0
@@ -507,7 +509,7 @@ class Node:
         entry = self.links.get(link_id)
         why = self.gate(entry, path)
         if why:
-            return self.gate_answer(why, entry, data)
+            return self.answer(why, entry, data, request_id, path=path)
         try:
             if self.plugin_handles(path):
                 content = self.plugin_page(path, data, link_id, entry)
@@ -591,7 +593,7 @@ class Node:
         entry = self.links.get(link_id)
         why = self.gate(entry, path)
         if why:
-            return self.gate_answer(why, entry, data, file=True)
+            return self.answer(why, entry, data, request_id, file=True, path=path)
         try:
             size = os.path.getsize(file_path)
             handle = open(file_path, "rb")
@@ -720,6 +722,61 @@ class Node:
         self.log("Sent the blocked page to link %s" % short(entry["link"].link_id), "warn")
         return BLOCKED_PAGE.format(reason=reason, who=entry.get("who") or "not identified").encode("utf-8")
 
+    SLOW_PENDING_MAX = 32
+
+    def answer(self, why, entry, data, request_id, file=False, path=""):
+        """gate_answer, with the slow maze: the fake page or file goes out later from a timer."""
+        if entry is not None:
+            entry["maze_path"] = path     # what was asked, for the maze list
+        resp = self.gate_answer(why, entry, data, file=file)
+        if why == "maze" and resp is not None and entry and self.is_honeypot:
+            delay = self.maze_delay(entry["link"])
+            if delay > 0 and self.send_later(entry, request_id, resp, delay):
+                return None
+        return resp
+
+    def maze_delay(self, link):
+        """Seconds to hold a maze answer: 0 (off), fixed, or adaptive = just before the
+        visitor's request times out (Reticulum's default: rtt * factor + 11.25 s)."""
+        how = self.cfg.get("honeypot", "slow_maze")
+        if how == "fixed":
+            return max(0.0, min(float(self.cfg.getint("honeypot", "slow_seconds")), 300.0))
+        if how == "adaptive":
+            rtt = getattr(link, "rtt", None) or 0.5
+            factor = getattr(link, "traffic_timeout_factor", None) or RNS.Link.TRAFFIC_TIMEOUT_FACTOR
+            timeout = rtt * factor + RNS.Resource.RESPONSE_MAX_GRACE_TIME * 1.125
+            return max(0.0, timeout - rtt - 2.5 - random.random())
+        return 0.0
+
+    def send_later(self, entry, request_id, resp, delay):
+        """Sends a request's response after delay seconds, as RNS would have sent it at once."""
+        link = entry["link"]
+        with self.lock:
+            if self.slow_pending >= self.SLOW_PENDING_MAX:
+                return False
+            self.slow_pending += 1
+        entry["maze_wait"] = entry.get("maze_wait", 0) + delay
+
+        def send():
+            try:
+                if link.status != RNS.Link.ACTIVE:
+                    return
+                packed = msgpack.packb([request_id, resp])
+                if len(packed) <= link.mdu:
+                    RNS.Packet(link, packed, RNS.Packet.DATA, context=RNS.Packet.RESPONSE).send()
+                else:
+                    RNS.Resource(packed, link, request_id=request_id, is_response=True, auto_compress=False)
+            except Exception as e:
+                self.log("Slow maze: could not send a late answer: %s" % e, "warn")
+            finally:
+                with self.lock:
+                    self.slow_pending -= 1
+
+        timer = threading.Timer(delay, send)
+        timer.daemon = True
+        timer.start()
+        return True
+
     def block_link(self, link_short, mode, reason=""):
         """Blocks one connection (a visitor that did not identify has nothing else):
         it lasts until that link closes."""
@@ -764,7 +821,6 @@ class Node:
             entry["maze_files"] = entry.get("maze_files", 0) + 1
         entry["maze_last"] = now
         entry["requests"] += 1
-        self.stats.bump("maze")
         seed = str((data or {}).get("var_id", "")) if isinstance(data, dict) else ""
         return random.Random("%s-%s" % (kind, seed) if seed else "%s-%s-%d" % (kind, entry.get("who") or short(entry["link"].link_id), entry["maze"]))
 
@@ -785,7 +841,17 @@ class Node:
             links.append("`[%s`:%s`id=%d]  `F888%d KB`f" % (name, MAZE_FILE, fid, size // 1024))
         page = (">%s\n\n%s\n\n%s\n" % (title, "\n".join(text), "\n".join(links))).encode("utf-8")
         entry["maze_bytes"] = entry.get("maze_bytes", 0) + len(page)
+        vid = (data or {}).get("var_id") if isinstance(data, dict) else None
+        asked = (entry.get("maze_path") or MAZE_PATH).replace("/page/", "", 1)
+        self.maze_got(entry, "page", asked + (" id=%s" % vid if vid else ""), len(page))
         return page
+
+    def maze_got(self, entry, kind, label, nbytes):
+        """What the maze gave this link, by name (the first PAGES_KEPT), and the counters."""
+        got = entry.setdefault("maze_got", [])
+        if len(got) < PAGES_KEPT:
+            got.append(("file " if kind == "file" else "") + label)
+        self.stats.maze(kind, nbytes)
 
     @staticmethod
     def maze_file_name(fid):
@@ -807,6 +873,7 @@ class Node:
             lines.append(" ".join(rng.choice(MAZE_WORDS) for _ in range(rng.randint(6, 12))))
         body = "\n".join(lines).encode("utf-8")[:size]
         entry["maze_bytes"] = entry.get("maze_bytes", 0) + len(body)
+        self.maze_got(entry, "file", name, len(body))
         return [name, body]
 
     def drop_visitor(self, who):
@@ -969,6 +1036,9 @@ class Node:
         self.stats.link_traffic(link.rxbytes, link.txbytes)
         if entry and self.is_honeypot:
             self.record_peer(entry, time.time())
+            if entry.get("who") and entry["who"] in self.server.crawlers():
+                self.server.crawler_took(entry["who"], self, entry["requests"],
+                                         entry["bytes"] + entry.get("maze_bytes", 0), entry.get("maze", 0))
         if entry:
             who = (" (LXMF %s)" % entry["who"]) if entry["who"] else ""
             self.log("Disconnected link %s after %s: %s, %s, %s sent%s, %d online" % (
