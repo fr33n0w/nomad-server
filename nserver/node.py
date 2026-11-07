@@ -181,7 +181,8 @@ def path_back(entry, dest_hash):
     try:
         r = RNS.Reticulum.get_instance()
         name = r.get_next_hop_if_name(dest_hash) if r else None
-        if name:
+        # RNS answers the string "None" when it has no next hop
+        if name and str(name) != "None":
             entry["via"], entry["via_path"] = str(name), True
     except Exception:
         pass
@@ -236,6 +237,7 @@ class Node:
         self.by_who = {}
         self.flagged = set()
         self.links = {}
+        self.closed = collections.deque(maxlen=50)  # links closed in the last CLOSED_SHOWN s, for the live list
         self.rate = {}
         self.slow_pending = 0
         self.started = None
@@ -768,7 +770,7 @@ class Node:
         with self.lock:
             self.links[link.link_id] = {"link": link, "since": time.time(), "who": None, "name": "",
                                         "requests": 0, "refreshes": 0, "bytes": 0, "last": {},
-                                        "recent": collections.deque(), "crawler": False, "via": via, "hops": hops,
+                                        "recent": collections.deque(), "visited": {}, "crawler": False, "via": via, "hops": hops,
                                         "addr": addr if self.extra else 0}
             online = len(self.links)
         self.stats.bump("connects")
@@ -1094,6 +1096,70 @@ class Node:
                      **maze_of(e), **via_of(e)}
                     for h, e in self.links.items()]
 
+    # ---- normal nodes: incoming connections history (kept on disk) ----
+
+    HISTORY_KEPT = 1000
+    CLOSED_SHOWN = 60
+
+    @staticmethod
+    def visit_record(link, e, until):
+        return {"link": link, "since": e["since"], "until": until, "who": e.get("who"), "identity": e.get("identity", ""),
+                "name": e.get("name", ""), "requests": e["requests"], "refreshes": e["refreshes"], "bytes": e["bytes"],
+                "rx": e["link"].rxbytes, "tx": e["link"].txbytes, "crawler": e["crawler"], "blocked": e.get("trapped", ""),
+                "pages": [[p, n] for p, n in e.get("visited", {}).items()], "files": e.get("files", []),
+                "addr": e.get("addr", 0), **via_of(e)}
+
+    def history(self):
+        """Closed links, oldest first: history.jsonl, one line per link, trimmed when it doubles."""
+        if not hasattr(self, "_history"):
+            self._history = collections.deque(maxlen=self.HISTORY_KEPT)
+            self._history_lines = 0
+            try:
+                with open(os.path.join(self.data_path, "history.jsonl"), encoding="utf-8") as f:
+                    for line in f:
+                        self._history_lines += 1
+                        try:
+                            self._history.append(json.loads(line))
+                        except ValueError:
+                            pass
+            except OSError:
+                pass
+        return self._history
+
+    def clear_history(self):
+        """Empties the incoming connections history; stats and live links stay."""
+        with self.lock:
+            self._history = collections.deque(maxlen=self.HISTORY_KEPT)
+            self._history_lines = 0
+            self.closed.clear()
+            try:
+                os.remove(os.path.join(self.data_path, "history.jsonl"))
+            except OSError:
+                pass
+        self.log("Incoming connections history cleared")
+
+    def record_history(self, rec):
+        path = os.path.join(self.data_path, "history.jsonl")
+        with self.lock:
+            hist = self.history()
+            hist.append(rec)
+            self._history_lines += 1
+            rewrite = self._history_lines > 2 * self.HISTORY_KEPT
+            text = "".join(json.dumps(r) + "\n" for r in hist) if rewrite else json.dumps(rec) + "\n"
+            if rewrite:
+                self._history_lines = len(hist)
+        try:
+            os.makedirs(self.data_path, exist_ok=True)
+            if rewrite:
+                with open(path + ".tmp", "w", encoding="utf-8") as f:
+                    f.write(text)
+                os.replace(path + ".tmp", path)
+            else:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(text)
+        except OSError:
+            pass
+
     def caught_count(self):
         """Peers caught here, counted like the peer list: one per LXMF address, one per link otherwise."""
         with self.lock:
@@ -1143,6 +1209,11 @@ class Node:
             self.rate.pop(link.link_id, None)
             online = len(self.links)
         self.stats.link_traffic(link.rxbytes, link.txbytes)
+        if entry and not self.is_honeypot:
+            rec = self.visit_record(short(link.link_id), entry, time.time())
+            with self.lock:
+                self.closed.append(rec)
+            self.record_history(rec)
         if entry and self.is_honeypot:
             self.record_peer(entry, time.time())
             if entry.get("who") and entry["who"] in self.server.crawlers():
@@ -1171,6 +1242,9 @@ class Node:
             return
         entry["last"][path] = now
         entry["bytes"] += nbytes
+        seen = entry.setdefault("visited", {})
+        if path in seen or len(seen) < PAGES_KEPT:
+            seen[path] = seen.get(path, 0) + 1
         if kind == "refresh":
             entry["refreshes"] += 1
             return
@@ -1246,12 +1320,15 @@ class Node:
                        "requests": e["requests"], "refreshes": e["refreshes"], "bytes": e["bytes"],
                        "rx": e["link"].rxbytes, "tx": e["link"].txbytes,
                        "crawler": e["crawler"], "blocked": e.get("trapped", ""), **via_of(e)} for h, e in self.links.items()]
+            # closed a moment ago: short visits would never show between two refreshes of the page
+            now = time.time()
+            closed = [r for r in self.closed if now - r["until"] < self.CLOSED_SHOWN]
         return {"id": self.id, "name": self.name, "address": self.address, "state": self.state,
                 "addresses": self.extra_addresses() if self.is_honeypot else [],
                 "error": self.error, "started": self.started, "last_announce": self.last_announce,
                 "announce_interval": self.cfg.getint("node", "announce_interval"),
                 "pages": self.pages_count, "files": self.files_count,
-                "plugin": bool(self.plugin), "online": online,
+                "plugin": bool(self.plugin), "online": online, "closed": closed,
                 "type": "honeypot" if self.is_honeypot else "normal",
                 "caught": self.caught_count() if self.is_honeypot else 0, "stats": self.stats.summary(),
                 "spark": self.stats.spark(),

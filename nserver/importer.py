@@ -18,11 +18,12 @@ SCAN_SECONDS = 25
 SCAN_DEPTH = 7
 COUNT_CAP = 5000
 # never worth walking into, on any system
-SKIP = {"node_modules", "__pycache__", "site-packages", "dist-packages", "venv", ".venv", "AppData",
+SKIP = {"node_modules", "__pycache__", "site-packages", "dist-packages", "AppData",
         "Library", "Windows", "Program Files", "Program Files (x86)", "ProgramData", "$Recycle.Bin",
         "System Volume Information", "proc", "sys", "dev", "run", "snap", "tmp", "boot", "lost+found",
         "media_cache", ".trash", ".git"}
-DOT_OK = {".nomadnetwork", ".config", "nomadnetwork"}
+# venvs too: NomadNet is often run with its config inside one (site-packages stays skipped)
+DOT_OK = {".nomadnetwork", ".config", "nomadnetwork", ".venvs", ".venv", ".virtualenvs", ".local"}
 CFG_NAMES = ("config", "config.cfg", "node.cfg", "config.ini", "server.cfg", "settings.cfg")
 
 
@@ -170,8 +171,13 @@ def _roots():
 def scan(server, seconds=SCAN_SECONDS):
     """Walks the machine for old nodes. Stops after `seconds`: complete=False."""
     t0, found, seen = time.time(), [], set()
-    own = _norm(server.nodes_dir)
-    own_up = _norm(upload_dir(server))
+    # nomad-server's own folder is never scanned (nodes, uploads, trash, backups, its venv)
+    owns = {_norm(server.base), _norm(server.nodes_dir), _norm(upload_dir(server))}
+    # a base that is a whole home or drive would hide everything: then only its nodes and uploads
+    owns -= {_norm(r) for r in _roots()}
+
+    def mine(n):
+        return any(n == o or n.startswith(o.rstrip(os.sep) + os.sep) for o in owns)
     known = [os.path.join(os.path.expanduser("~"), ".nomadnetwork"),
              os.path.join(os.path.expanduser("~"), ".config", "nomadnetwork")]
     if sys.platform != "win32" and os.path.isdir("/home"):
@@ -187,7 +193,7 @@ def scan(server, seconds=SCAN_SECONDS):
         except OSError:
             return
         # an identity is required here: pages without one are mostly browser caches of other nodes
-        if info and info["mu"] and info["identity"] and _norm(info["root"]) not in seen:
+        if info and info["mu"] and info["identity"] and _norm(info["root"]) not in seen and not mine(_norm(info["root"])):
             seen.add(_norm(info["root"]))
             found.append(info)
 
@@ -204,7 +210,7 @@ def scan(server, seconds=SCAN_SECONDS):
                 break
             cur, depth = queue.popleft()
             n = _norm(cur)
-            if n in (own, own_up) or n.startswith(own + os.sep) or n.startswith(own_up + os.sep) or n in seen:
+            if mine(n) or n in seen:
                 continue
             try:
                 entries = [e for e in os.scandir(cur) if e.is_dir()]
@@ -321,6 +327,9 @@ def pick_folder(start=""):
                "--title=Choose the folder of the old node"]
     elif sys.platform != "win32" and shutil.which("kdialog"):
         cmd = ["kdialog", "--getexistingdirectory", start]
+    elif "__compiled__" in globals() or getattr(sys, "frozen", False):
+        # compiled: the exe has no -c, it opens the chooser with --pick-folder
+        cmd = [sys.executable, "--pick-folder", start]
     else:
         py = sys.executable
         if sys.platform == "win32":
@@ -328,7 +337,8 @@ def pick_folder(start=""):
             w = os.path.join(os.path.dirname(py), "pythonw.exe")
             py = w if os.path.isfile(w) else py
         cmd = [py, "-c", PICK_TK, start]
-    r = subprocess.run(cmd, capture_output=True, env=env)
+    flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+    r = subprocess.run(cmd, capture_output=True, env=env, creationflags=flags)
     path = r.stdout.decode("utf-8", "replace").strip()
     return os.path.abspath(path) if path else ""
 

@@ -562,6 +562,7 @@ class Server:
         return {"version": VERSION, "started": self.started, "now": time.time(), "pid": os.getpid(),
                 "proc": proc.usage(),
                 "platform": sys.platform, "rns": self.rns_info(),
+                "advanced": self.cfg.get("webui", "advanced").strip().lower(),
                 "nodes": [n.info() for n in self.nodes.values()]}
 
     # ---- restart ----

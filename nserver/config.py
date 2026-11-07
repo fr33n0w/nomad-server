@@ -19,9 +19,11 @@ SERVER_DEFAULTS = {
     "webui": {
         "enabled": "yes",
         "splash": "yes",
+        "advanced": "",
         "host": "127.0.0.1",
         "port": "8484",
         "password": "",
+        "trust_lan": "no",
     },
 }
 
@@ -86,11 +88,15 @@ reasons = Crawler|Too many requests (flooding)|Spam|Abuse
 enabled = yes
 # yes = show the logo for a few seconds when the web UI opens
 splash = yes
+# yes = advanced mode (Honeypot tab); the UI turns it on with 5 clicks on the logo in About
+advanced = no
 # 127.0.0.1 = this computer only, 0.0.0.0 = the whole network (set a password)
 host = 127.0.0.1
 port = 8484
 # Set it with: nomad_server.py --set-password (stored as a hash)
 password =
+# yes = the first password can also be set from the local network (192.168.x, 10.x, 172.16-31.x), not only here
+trust_lan = no
 """
 
 NODE_TEMPLATE = """# Node configuration: pages/ and files/ next to this file are served.

@@ -6,6 +6,7 @@ POST requests need the X-Requested-With header, which a form or a link on
 another site cannot add.
 """
 import http.cookies
+import ipaddress
 import json
 import mimetypes
 import os
@@ -212,6 +213,20 @@ class Handler(BaseHTTPRequestHandler):
     def local(self):
         return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
+    def lan(self):
+        """A private network address (192.168.x, 10.x, 172.16-31.x, fc00::/7), not this computer."""
+        ip = self.client_address[0]
+        ip = ip[7:] if ip.startswith("::ffff:") else ip
+        try:
+            a = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        return a.is_private and not a.is_loopback and not a.is_link_local
+
+    def trusted(self):
+        # who may set the first password: this computer, the console (token), the LAN if trust_lan = yes
+        return self.local() or self.has_token() or (self.ui.server.cfg.getbool("webui", "trust_lan") and self.lan())
+
     def edit_ok(self):
         # Pages can be scripts the server runs: over the network only with a password
         return self.ui.password_set() or self.local()
@@ -285,6 +300,20 @@ class Handler(BaseHTTPRequestHandler):
                             out.append(row)
                 out.sort(key=lambda r: (r.get("until") is not None, -(r.get("until") or r["since"])))
                 return self.send(200, {"items": out[:int(q.get("limit", 300) or 300)]})
+            if p == "/api/history":
+                # closed links of the normal nodes, newest first, a page at a time
+                out = []
+                for n in srv.nodes.values():
+                    if not n.is_honeypot:
+                        with n.lock:
+                            out += [dict(r, node=n.id, node_name=n.name, node_address=n.address) for r in n.history()]
+                out.sort(key=lambda r: -r["since"])
+                start = max(0, int(q.get("offset", 0) or 0))
+                items = out[start:start + min(200, max(1, int(q.get("limit", 20) or 20)))]
+                for r in items:
+                    if not r.get("name") and r.get("identity"):
+                        r["name"] = peer_name(r["identity"])
+                return self.send(200, {"items": items, "total": len(out)})
             if p == "/api/blocklist.txt":
                 return self.send(200, srv.blocklist_text().encode("utf-8"), "text/plain; charset=utf-8",
                                  {"Content-Disposition": 'attachment; filename="nomad-server-blocklist-%s.txt"' % time.strftime("%Y%m%d")})
@@ -469,6 +498,11 @@ class Handler(BaseHTTPRequestHandler):
                 if n.is_honeypot:
                     n.clear_peers()
             return {"ok": True}
+        if p == "/api/history/clear":
+            for n in srv.nodes.values():
+                if not n.is_honeypot:
+                    n.clear_history()
+            return {"ok": True}
         if p == "/api/blocklist/scope":
             srv.set_scope(data.get("who", ""), data.get("scope", "all"))
             return {"ok": True}
@@ -524,16 +558,35 @@ class Handler(BaseHTTPRequestHandler):
             srv.request_restart()
             return {"ok": True}
         if p == "/api/settings":
-            allowed = {"server": ("rns_config", "nodes_dir", "log_to_file"), "webui": ("host", "port", "splash"), "blocklist": ("reasons",)}
+            allowed = {"server": ("rns_config", "nodes_dir", "log_to_file"), "webui": ("host", "port", "splash", "trust_lan"),
+                       "blocklist": ("reasons",)}
             values = {s: {k: v for k, v in (data.get(s) or {}).items() if k in keys} for s, keys in allowed.items()}
+            if "trust_lan" in values["webui"] and not (self.ui.password_set() or self.local() or self.has_token()):
+                # otherwise a stranger could turn it on and then set the first password
+                raise PermissionError("Trust local network can only be changed from the server's own computer or with a password")
+            trust_only = values["webui"].keys() == {"trust_lan"} and not any(values[s] for s in ("server", "blocklist"))
             if "port" in values["webui"]:
                 port = int(values["webui"]["port"])
                 if not 1 <= port <= 65535:
                     raise ValueError("port out of range")
             srv.cfg.set(values)
+            if trust_only:
+                # read at every request: no restart
+                log.line("Trust local network %s" % ("on" if srv.cfg.getbool("webui", "trust_lan") else "off"))
+                return {"ok": True, "restart": False}
             log.line("Server settings changed: restart to apply")
             return {"ok": True, "restart": True}
+        if p == "/api/advanced":
+            on = bool(data.get("on"))
+            srv.cfg.set({"webui": {"advanced": "yes" if on else "no"}})
+            log.line("Advanced mode %s" % ("on" if on else "off"))
+            return {"ok": True}
         if p == "/api/password":
+            # with no password yet, a stranger on the network could set one and lock the owner out
+            if not self.ui.password_set() and not self.trusted():
+                raise PermissionError("The first web UI password can only be set from the server's own computer "
+                                      "(Settings there, or nomad_server.py --set-password), or from the local network "
+                                      "with Trust local network on")
             pw = data.get("password", "")
             if pw and len(pw) < 6:
                 raise ValueError("at least 6 characters")

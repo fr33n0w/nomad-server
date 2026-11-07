@@ -203,6 +203,7 @@ async function loadOverview() {
   $("#conn").title = "Reticulum connection, server uptime, memory and CPU of the server process (100% = one core)";
   $("#version").textContent = "v" + overview.version;
   $("#about-ver").textContent = "v" + overview.version;
+  await syncAdvanced(overview.advanced || "");
   fillNodeSelects();
   if (tab === "overview") renderOverview();
 }
@@ -243,15 +244,67 @@ function renderOverview() {
 
   const rows = [];
   nodes.forEach((n) => n.online.forEach((v) => rows.push({ n, v })));
-  $("#online").innerHTML = rows.length
-    ? `<table class="online"><tr><th>Node</th><th>Link</th><th>Visitor</th><th>Arrived</th><th class="n">Connected</th><th class="n">Requests</th><th class="n">In</th><th class="n">Out</th></tr>${rows.map(({ n, v }) => `<tr>
+  // closed a moment ago, greyed: short visits fall between two refreshes
+  const gone = [];
+  nodes.forEach((n) => (n.closed || []).forEach((v) => gone.push({ n, v })));
+  gone.sort((a, b) => b.v.until - a.v.until);
+  const visitor = (n, v, open) => v.who
+    ? `<span class="who">${esc(v.who)}</span>${v.name ? ` <span class="muted">${esc(v.name)}</span>` : ""} ${open ? blockBtn(v.who, v.name, n.id) : ""}`
+    : `<span class="muted">Not identified</span> ${!open ? "" : isMaze(v.blocked) ? `<span class="flag">in the maze</span> ${releaseBtn(v.link, n.id)}` : v.blocked ? `<span class="flag bad">link blocked · ${esc(v.blocked)}</span> <button class="btn-unblock" data-unblocklink="${esc(v.link)}" data-node="${esc(n.id)}">Unblock</button>` : `<button class="btn-block" data-blocklink="${esc(v.link)}" data-node="${esc(n.id)}" title="Block this connection until it disconnects">Block link</button>`}`;
+  const row = ({ n, v }, open) => `<tr${open ? "" : ` class="closed" title="Closed: it stays here for a minute, then only in the history below"`}>
       <td><span class="nm-cell"${hstyle(hue(n.address))}><span class="ndot"></span>${esc(n.name)}</span></td>
       <td class="who">${esc(v.link)}</td>
-      <td>${v.who ? `<span class="who">${esc(v.who)}</span>${v.name ? ` <span class="muted">${esc(v.name)}</span>` : ""} ${blockBtn(v.who, v.name, n.id)}`
-        : `<span class="muted">Not identified</span> ${isMaze(v.blocked) ? `<span class="flag">in the maze</span> ${releaseBtn(v.link, n.id)}` : v.blocked ? `<span class="flag bad">link blocked · ${esc(v.blocked)}</span> <button class="btn-unblock" data-unblocklink="${esc(v.link)}" data-node="${esc(n.id)}">Unblock</button>` : `<button class="btn-block" data-blocklink="${esc(v.link)}" data-node="${esc(n.id)}" title="Block this connection until it disconnects">Block link</button>`}`}${v.crawler ? ` <span class="flag">crawler?</span>` : ""}</td>
+      <td>${visitor(n, v, open)}${v.crawler ? ` <span class="flag">crawler?</span>` : ""}</td>
       <td class="small">${v.addr ? `on N${v.addr} · ` : ""}${viaText(v)}</td>
-      <td class="n">${stamp(v.since)}<div class="muted small">${span(o.now - v.since)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${size(v.rx)}</td><td class="n">${size(v.tx)}</td></tr>`).join("")}</table>`
+      <td class="n">${stamp(v.since)}<div class="muted small">${open ? span(o.now - v.since) : `closed ${span(o.now - v.until)} ago · lasted ${span(v.until - v.since)}`}</div></td><td class="n">${num(v.requests)}</td><td class="n">${size(v.rx)}</td><td class="n">${size(v.tx)}</td></tr>`;
+  $("#online").innerHTML = rows.length || gone.length
+    ? `<table class="online"><tr><th>Node</th><th>Link</th><th>Visitor</th><th>Arrived</th><th class="n">Connected</th><th class="n">Requests</th><th class="n">In</th><th class="n">Out</th></tr>${rows.map((r) => row(r, true)).join("")}${gone.map((r) => row(r, false)).join("")}</table>${rows.length ? "" : `<div class="empty">Nobody connected now.</div>`}`
     : `<div class="empty">Nobody connected.</div>`;
+  loadHistory();
+}
+
+// ---- incoming connections history (normal nodes): read only, newest first ----
+const HIST_PAGE = 20;
+let histShown = HIST_PAGE, histKey = "", histBusy = false;
+
+async function loadHistory(force) {
+  const box = $("#history");
+  if (!box || histBusy) return;
+  // an open detail stays put until it is closed
+  if (!force && box.querySelector("details[open]")) return;
+  histBusy = true;
+  let d;
+  try {
+    d = await api(`/api/history?limit=${histShown}`);
+  } catch (e) {
+    histBusy = false;
+    return;
+  }
+  histBusy = false;
+  const key = `${d.total}|${d.items.length}|${d.items.map((v) => v.until).join(",")}`;
+  if (!force && key === histKey) return;
+  histKey = key;
+  if (!d.items.length) {
+    box.innerHTML = `<div class="empty">No connections yet: every visit to a node is listed here when it ends.</div>`;
+    return;
+  }
+  const pl = (k, a, b) => `${num(k)} ${k === 1 ? a : b}`;
+  box.innerHTML = `<div class="hist">${d.items.map((v) => {
+    const pages = v.pages || [], files = v.files || [];
+    const who = v.who ? `LXMF <span class="who">${esc(v.who)}</span>${v.name ? ` <b>${esc(v.name)}</b>` : ""}` : `<span class="muted">not identified</span>`;
+    const what = [pl(v.requests, "request", "requests"), v.refreshes ? pl(v.refreshes, "refresh", "refreshes") : "", `${size(v.bytes)} sent`].filter(Boolean).join(", ");
+    const flags = (v.crawler ? ` <span class="flag">crawler?</span>` : "") + (v.blocked ? ` <span class="flag bad">${esc(v.blocked)}</span>` : "");
+    const list = pages.length || files.length
+      ? `<details><summary>${pl(pages.length, "page", "pages")}${files.length ? `, ${pl(files.length, "file", "files")}` : ""}</summary><ul class="hist-pages">${pages.map(([p, k]) => `<li><span class="mono">${esc(p)}</span>${k > 1 ? ` <span class="muted">×${k}</span>` : ""}</li>`).join("")}${files.map((f) => `<li><span class="mono">${esc(f)}</span> <span class="muted">file</span></li>`).join("")}</ul></details>`
+      : `<span class="muted small">no pages</span>`;
+    return `<div class="hist-row">
+      <div><span class="mono">${stamp(v.since)}</span> <span class="muted">for ${span(v.until - v.since)}</span> · <span class="nm-cell"${hstyle(hue(v.node_address))}><span class="ndot"></span>${esc(v.node_name)}</span> · link <span class="who">${esc(v.link)}</span>${v.addr ? ` on N${v.addr}` : ""}${viaText(v) ? ` · ${viaText(v)}` : ""}</div>
+      <div>${who} · ${what}${flags}</div>
+      <div>${list}</div>
+    </div>`;
+  }).join("")}</div>${d.items.length < d.total ? `<div class="hist-more"><button id="hist-more">Load more</button> <span class="muted small">${num(d.items.length)} of ${num(d.total)}</span></div>` : `<div class="hist-more muted small">${pl(d.total, "connection", "connections")}, all shown</div>`}`;
+  const more = $("#hist-more");
+  if (more) more.onclick = () => { histShown += HIST_PAGE; loadHistory(true); };
 }
 
 function nodeCard(n) {
@@ -621,11 +674,30 @@ function renderLog() {
 
 // ---- settings ----
 
-const advanced = () => { try { return localStorage.getItem("ns-advanced") === "1"; } catch (e) { return false; } };
+// advanced mode lives in server.cfg ([webui] advanced), the same for every browser
+let advOn = false;
+const advanced = () => advOn;
 function applyAdvanced() {
-  document.documentElement.classList.toggle("advanced", advanced());
+  document.documentElement.classList.toggle("advanced", advOn);
 }
-applyAdvanced();
+async function syncAdvanced(v) {
+  if (v === "") {
+    // cfg from before 0.1.3: take the old browser setting once, only where honeypots exist
+    let old = false;
+    try { old = localStorage.getItem("ns-advanced") === "1"; } catch (e) { /* private mode */ }
+    v = old && hpNodes().length ? "yes" : "no";
+    await api("/api/advanced", { on: v === "yes" }).catch(() => {});
+  }
+  const on = v === "yes";
+  if (on === advOn) return;
+  advOn = on;
+  applyAdvanced();
+  fillNodeSelects();
+  renderLog();
+  loadBlocked();
+  loadTrash();
+  if (!on && tab === "honeypot") setTab("overview");
+}
 async function setAdvanced(on) {
   // advanced mode off = honeypots off: they stop, and stay stopped until started again
   const running = on ? [] : hpNodes().filter((n) => n.state === "running");
@@ -636,14 +708,13 @@ async function setAdvanced(on) {
     }
     await loadOverview();
   }
-  try { localStorage.setItem("ns-advanced", on ? "1" : "0"); } catch (err) { /* private mode */ }
-  applyAdvanced();
-  fillNodeSelects();
-  renderLog();
-  loadBlocked();
-  loadTrash();
+  try {
+    await api("/api/advanced", { on });
+  } catch (e) {
+    return toast("Error: " + e.message);
+  }
+  await syncAdvanced(on ? "yes" : "no");
   toast(on ? "Advanced mode on: see the Honeypot tab" : "Advanced mode off: honeypots stopped and hidden");
-  if (!on && tab === "honeypot") setTab("overview");
 }
 let logoClicks = [];
 document.addEventListener("click", (e) => {
@@ -704,6 +775,7 @@ const SERVER_FIELDS = [
   ["webui", "host", "text", "Web UI address", "127.0.0.1 = this computer only, 0.0.0.0 = the whole network (set a password)"],
   ["webui", "port", "number", "Web UI port", ""],
   ["webui", "splash", "bool", "Splash screen on start", "Shows the logo for a few seconds when the web UI opens"],
+  ["webui", "trust_lan", "bool", "Trust local network", "The first password can also be set from the local network (192.168.x, 10.x, 172.16-31.x). Only if you trust everyone on it. Applies at once"],
   ["blocklist", "reasons", "text", "Block reasons", "Offered when you block a peer, separated by |"],
 ];
 
@@ -1038,8 +1110,13 @@ $("#node-delete").addEventListener("click", async () => {
 
 $("#server-save").addEventListener("click", async () => {
   try {
-    await api("/api/settings", formValues(SERVER_FIELDS, "sf"));
-    $("#server-msg").textContent = "Saved. Address, port, folders and log file apply after a restart.";
+    const r = await api("/api/settings", formValues(SERVER_FIELDS, "sf"));
+    // saved: the next save sends only what changes after this one
+    for (const [sec, key, type] of SERVER_FIELDS) {
+      const el = $(`#sf-${sec}-${key}`);
+      el.dataset.orig = type === "bool" ? (el.checked ? "yes" : "no") : el.value.trim();
+    }
+    $("#server-msg").textContent = r.restart === false ? "Saved and applied." : "Saved. Address, port, folders and log file apply after a restart.";
   } catch (err) {
     $("#server-msg").textContent = "Error: " + err.message;
   }
@@ -1453,6 +1530,13 @@ $("#hp-save").addEventListener("click", async () => {
   }
 });
 
+$("#hist-clear").addEventListener("click", async () => {
+  if (!(await ask("Clear history", "<p>The incoming connections history of every node is emptied. Stats, counters and live connections stay.</p>", "Clear history", true))) return;
+  await api("/api/history/clear", {}).then(() => toast("History cleared"), (e) => toast("Error: " + e.message));
+  histShown = HIST_PAGE;
+  loadHistory(true);
+});
+
 $("#hp-clear").addEventListener("click", async () => {
   if (!(await ask("Clear history", "<p>The peer connections history of every honeypot is emptied. Blocks stay in the blocklist (Settings), counters and live connections stay.</p>", "Clear history", true))) return;
   await api("/api/honeypot/clear", {}).then(() => toast("History cleared"), (e) => toast("Error: " + e.message));
@@ -1655,6 +1739,8 @@ $("#restore-file").addEventListener("change", async (e) => {
 
 // where a link came from: hops always, the interface when Reticulum tells it
 function viaText(v) {
+  // older records kept RNS's "None" (no next hop known)
+  if (v.via === "None") v = { ...v, via: "" };
   if (!v.hops && !v.via) return "";
   const hops = v.hops ? `${v.hops} ${v.hops === 1 ? "hop" : "hops"}` : "";
   const via = v.via ? `<span class="mono" title="${v.via_path ? "Interface rnsd uses to reach this peer: where it came from" : "Interface the link came in on"}">${esc(v.via)}</span>` : "";
@@ -1702,13 +1788,17 @@ function impRender() {
       return;
     }
     const res = imp.scan || { items: [] };
+    if (res.error) {
+      b.innerHTML = impErrorHtml(res.error);
+      return;
+    }
     const list = res.items.map((i, k) => `<label class="imp-item${i.used_by ? " off" : ""}"><input type="radio" name="imp-r" value="${k}"${imp.pick === i ? " checked" : ""}${i.used_by ? " disabled" : ""}><span>${impFound(i)}</span></label>`).join("");
     b.innerHTML = `<p class="muted small">${res.items.length ? `${res.items.length} node${res.items.length === 1 ? "" : "s"} found` : "No old nodes found"} in ${res.seconds} s, ${res.dirs} folders${res.complete ? "" : ". The scan stopped at the time limit: if yours is missing, use Manual import"}.</p>
       <div class="imp-list">${list}</div>${impPickHtml()}`;
   } else {
     const d = imp.dir;
     if (!d) {
-      b.innerHTML = `<p class="muted">Loading…</p>`;
+      b.innerHTML = imp.error ? impErrorHtml(imp.error) : `<p class="muted">Loading…</p>`;
       return;
     }
     const f = d.found;
@@ -1746,12 +1836,23 @@ function impRender() {
   }
 }
 
+// a refused or failed request stays in the dialog, not only in a toast
+function impErrorHtml(msg) {
+  const pw = /password/i.test(msg);
+  return `<div class="imp-found">${esc(msg)}</div>` + (pw
+    ? `<p class="muted small">From another device, importing needs a web UI password: set it in <b>Settings &gt; Web UI password</b> on the computer running nomad-server, log in again, then retry. Or import from that computer.</p>`
+    : "");
+}
+
 async function impBrowse(path) {
   try {
     imp.dir = await api("/api/import/browse?path=" + encodeURIComponent(path));
+    imp.error = "";
     imp.pick = imp.dir.found && imp.dir.found.mu ? imp.dir.found : null;
   } catch (err) {
-    toast("Error: " + err.message);
+    // keep the folder already shown; with none yet, the dialog shows the error
+    if (imp.dir) toast("Error: " + err.message);
+    else imp.error = err.message;
   }
   impRender();
 }
@@ -1788,13 +1889,12 @@ $("#imp-body").addEventListener("click", async (e) => {
     try {
       imp.scan = await api("/api/import/scan");
     } catch (err) {
-      imp.scan = { items: [], seconds: 0, dirs: 0, complete: true };
-      toast("Error: " + err.message);
+      imp.scan = { items: [], seconds: 0, dirs: 0, complete: true, error: err.message };
     }
     imp.busy = false;
     if (imp.step === "scan") impRender();
   } else if (a === "manual") {
-    Object.assign(imp, { step: "manual", pick: null, dir: null });
+    Object.assign(imp, { step: "manual", pick: null, dir: null, error: "" });
     impRender();
     impBrowse("");
   } else if (a === "upload") {

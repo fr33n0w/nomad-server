@@ -10,6 +10,7 @@ nserver/stats.py     persistent counters (data/stats.json of each node)
 nserver/webui.py     HTTP server + JSON API (standard library)
 nserver/web/         the web UI (no external libraries, strict CSP)
 nserver/config.py    INI files, edited line by line to keep comments
+tests/test_server.py end-to-end test on a private Reticulum (tests/rns)
 ```
 
 ## Why one process
@@ -38,6 +39,10 @@ Saving: every 30 s if changed, plus at stop; temp file + fsync + replace. A brok
 
 Bytes are counted after the placeholders are filled, so they match what was sent. Link traffic (`link.rxbytes/txbytes`, headers included) is added when the link closes. The 60-minute activity strip is in memory only.
 
+## Open: local client through rnsd
+
+On the PC, `tests/probe.py` (a client of the local rnsd) sometimes gets the link but its request never reaches the server, while remote visitors and rBrowser are served. Seen after killing the server without a clean stop; an announce fixed it once, then it came back. Not understood yet.
+
 ## Rate limit
 
 Per link, not per identity: unidentified visitors all have identity None and would share one bucket.
@@ -56,6 +61,32 @@ From the UI, nodes and web UI restart inside the same process. Only a new Reticu
 
 Reticulum sets its own SIGINT/SIGTERM handlers when it starts, which exit at once: ours are set after it, so `systemctl stop` and `docker stop` save the counters first.
 
-## Building an exe (later)
+## Tests
 
-Nuitka `--standalone` with `--include-package=RNS --include-data-dir=nserver/web=nserver/web --include-data-dir=nserver/bait=nserver/bait`; the base folder is the exe folder (`__compiled__`).
+```
+python tests/test_server.py
+```
+
+Starts rnsd on tests/rns (ports 37490/37491, no interfaces), the server in tests/_run, then a real client: pages, refresh, .allowed, plugin, forms, files, media, identify, rate limit, API, password, restart. The client must sit on rnsd: an RNS client whose shared instance disappears exits the process.
+
+## Building the programs
+
+Nuitka 4.3 `--standalone`, from the files of the published tree (not from a working copy), RNS pinned to the version the release is tested with.
+
+Common options: `--include-package=nserver --include-package=RNS --include-package-data=RNS --include-data-dir=nserver/web=nserver/web --include-data-dir=nserver/bait=nserver/bait --nofollow-import-to=pytest`.
+
+| Program | Entry | Extra |
+|---|---|---|
+| CLI Windows | `nomad_server.py` | `--enable-plugin=tk-inter` (folder chooser), icon `nserver/web/nomad-server.ico`, version info |
+| APP Windows | `nomad_server_app.py` | as CLI + `--windows-console-mode=disable --include-module=nomad_server`; pywebview installed in the build Python, Nuitka's own plugin takes it |
+| CLI Linux (built and tested, not released yet) | `nomad_server.py` | `--nofollow-import-to=tkinter`: the folder chooser is zenity or kdialog, tkinter only from source |
+
+Built on Windows with MinGW downloaded by Nuitka, on Linux (Debian 13, Python 3.13) in a venv with `nuitka rns ordered-set zstandard patchelf` from pip: no sudo, no system packages.
+
+After the build: `RNS/Interfaces/__init__.py` builds `__all__` by globbing `*.py` in its folder. Compiled, the folder is empty and no interface is imported, so the build copies RNS's `Interfaces/*.py` into `<dist>/RNS/Interfaces/` (names only, the compiled modules load first).
+
+The base folder is the program's folder (`__compiled__`), or `--base`. The compiled program has no `-c`: the folder chooser runs as `<exe> --pick-folder`, the app window as `<exe> --window URL`.
+
+Checks: `NS_EXE=<cli program> python tests/test_server.py` and `tests/test_modes.py` run the same tests against the program (the `--set-password` checks only from source); the APP window is checked by starting it, capturing only its own window, closing it and checking that the server stopped.
+
+Not done yet: APP for Linux. pywebview on Linux needs GTK + WebKit2 (system libraries, hard to bundle) or Qt (PySide6 + QtWebEngine, ~300 MB), and a desktop to test it. Until then the Linux CLI with `--app` opens Edge, Chrome or Chromium in `--app` mode, else the default browser.

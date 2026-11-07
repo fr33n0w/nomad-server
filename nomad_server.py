@@ -44,12 +44,30 @@ def base_dir():
     return here
 
 
+if len(sys.argv) >= 2 and sys.argv[1] == "--pick-folder":
+    # used by the compiled exe for Import existing node: the system's folder window
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    root.update()
+    picked = filedialog.askdirectory(parent=root, initialdir=(sys.argv[2] if len(sys.argv) > 2 else None) or None,
+                                     mustexist=True, title="nomad-server: choose the folder of the old node")
+    sys.stdout.buffer.write((picked or "").encode("utf-8"))
+    sys.exit(0)
+
 BASE = base_dir()
 # restarts and desktop icons run this file, also when started from a pip entry point
 os.environ["NOMAD_SERVER_SCRIPT"] = os.path.abspath(__file__)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from nserver import config, VERSION  # noqa: E402
+
+if len(sys.argv) >= 3 and sys.argv[1] == "--window":
+    # the app window, a process of its own (nserver/appwindow.py)
+    from nserver import appwindow
+    sys.exit(appwindow.run(sys.argv[2], BASE, "--owner" in sys.argv))
 
 
 def api_text(path):
@@ -152,9 +170,16 @@ def running_at():
 
 
 def open_app(url, profile=None):
-    """Edge or Chrome in --app mode, else the normal browser. With its own profile
-    the window is a browser process of its own: the returned process ends when
-    the window is closed."""
+    """A pywebview window if installed, else Edge or Chrome in --app mode, else the
+    normal browser. With its own profile (started by this server) the returned
+    process ends when the window is closed, and closing it stops the server."""
+    from nserver import appwindow
+    if appwindow.available():
+        compiled = "__compiled__" in globals() or getattr(sys, "frozen", False)
+        cmd = ([sys.executable] if compiled else [sys.executable, os.path.abspath(__file__)])
+        cmd += ["--window", url, "--base", BASE] + (["--owner"] if profile else [])
+        kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform.startswith("win") else {}
+        return subprocess.Popen(cmd, **kw)
     candidates = ["msedge", "chrome", "google-chrome", "chromium", "chromium-browser"]
     if sys.platform.startswith("win"):
         pf = [os.environ.get(k, "") for k in ("ProgramFiles(x86)", "ProgramFiles", "LocalAppData")]
@@ -173,6 +198,18 @@ def open_app(url, profile=None):
     import webbrowser
     webbrowser.open(url)
     return None
+
+
+def message(text):
+    """For the app, which has no terminal: a message box on Windows, else stderr."""
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, text, "nomad-server", 0x10)
+            return
+        except Exception:
+            pass
+    print(text, file=sys.stderr)
 
 
 def wait_for(pid):
@@ -218,6 +255,9 @@ def run(args):
         # without its port nothing can reach this server, not even --status or --stop
         log.line("Stopping: free the port or change it, then start again", kind="error")
         stop["now"] = stop["failed"] = True
+        if args.app:
+            message("The web UI port %s is in use: close the program using it, or change the port in %s"
+                    % (srv.cfg.get("webui", "port"), os.path.join(BASE, "server.cfg")))
     elif args.app and not ui.console_only:
         window = open_app(ui.url(), os.path.join(BASE, "data", "app-window"))
         if window:
@@ -311,9 +351,19 @@ def main():
             sys.exit("They do not match.")
         if pw and len(pw) < 6:
             sys.exit("At least 6 characters.")
+        if os.path.exists(os.path.join(BASE, "data", ".token")):
+            # running: the server takes it at once (and writes server.cfg itself), no restart
+            try:
+                api("/api/password", {"password": pw})
+                print("Password %s, applied now." % ("set" if pw else "removed"))
+                return
+            except SystemExit as e:
+                if not str(e).startswith("No answer"):
+                    raise
+                # stale token from a server that is not running: write the file as below
         cfg = config.Config(os.path.join(BASE, "server.cfg"), config.SERVER_DEFAULTS, config.SERVER_TEMPLATE)
         cfg.set({"webui": {"password": config.hash_password(pw) if pw else ""}})
-        print("Password %s. Restart the server if it is running." % ("set" if pw else "removed"))
+        print("Password %s. It applies when the server starts." % ("set" if pw else "removed"))
         return
     if args.new_node:
         from nserver.server import Server

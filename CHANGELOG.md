@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.3
+
+- Added Windows exe: CLI and APP.
+- Added app window with pywebview.
+- Dark theme by default.
+- Advanced mode saved in server.cfg.
+- Import errors shown in the dialog.
+- Autoscan finds nodes inside venvs.
+- Autoscan skips nomad-server's own folder.
+- First password only from the server.
+- Closed links stay in Live a minute.
+- Added incoming connections history.
+- Fixed "via None" on links.
+- --set-password applies without restart.
+- Added Trust local network option.
+
 ## 0.1.2
 
 - Added Import existing node.

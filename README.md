@@ -43,14 +43,34 @@ If `rnsd` is running, the nodes use it; otherwise nomad-server runs its own Reti
 | How | Command | Notes |
 |---|---|---|
 | Terminal | `python nomad_server.py` | log on screen, Ctrl+C stops it |
-| App window | `python nomad_server.py --app` | the UI in its own window (Edge or Chrome); closing the window stops a server it started |
+| App window | `python nomad_server.py --app` | the UI in its own window (pywebview if installed, else Edge or Chrome); closing the window stops a server it started |
 | Windows | `start.bat`, `start_hidden.vbs` | the second one runs with no window at all |
+| Windows, no Python | `NomadServer-CLI-v0.1.3-win.exe`, `NomadServer-APP-v0.1.3-win.exe` | from [Releases](https://github.com/fr33n0w/nomad-server/releases), see [Programs without Python](#programs-without-python) |
 | Desktop icons | Settings > Shortcuts | desktop and app menu, Windows and Linux desktops |
 | Debian, Ubuntu, Raspberry Pi | `bash install.sh` | systemd service at boot, see [Installer](#installer-debian-ubuntu-raspberry-pi) |
 | pipx | `pipx install git+https://github.com/fr33n0w/nomad-server` | then `nomad-server`; data in `~/.nomad-server` |
 | Docker | `mkdir nomad-data && docker compose up -d` | see [Docker](#docker) |
 
 Only one server runs on a folder: the same identities can never be online twice. Started again with `--app`, it just opens the window.
+
+### Programs without Python
+
+No Python needed, for Windows for now: unzip and double-click.
+
+| Program | What it is |
+|---|---|
+| `NomadServer-CLI-v0.1.3-win.exe` | the server with its terminal, like `python nomad_server.py` |
+| `NomadServer-APP-v0.1.3-win.exe` | no terminal, the UI in its own window; closing it stops the server |
+
+**Your data stays next to the program**: `server.cfg`, `nodes\` and `data\` in the program's folder. A copy unzipped somewhere else is a new, empty server with new node addresses. To always run the same server, give its folder with `--base`, also in desktop shortcuts (Properties > Target):
+
+```
+NomadServer-APP-v0.1.3-win.exe --base D:\nomad-data
+```
+
+`--base` also takes the folder of an existing installation, with its nodes and settings: stop that server first. Icons made by Settings > Shortcuts already carry their folder.
+
+**Updating**: the version is in the file name, so a new zip unzipped elsewhere is a new, empty server. Unzip it over the old folder (`server.cfg`, `nodes\` and `data\` stay), or keep your data in a folder of its own with `--base`. Then press Settings > Shortcuts again: the icons still point to the old exe.
 
 ### Installer (Debian, Ubuntu, Raspberry Pi)
 
@@ -176,7 +196,7 @@ If the web UI port is already in use (for example another nomad-server), the ser
 | Option | |
 |---|---|
 | *(none)* | run, log on the terminal |
-| `--app` | also open the web UI in an app window (Edge or Chrome); closing it stops a server it started. If the server already runs, only opens the window |
+| `--app` | also open the web UI in an app window (pywebview if installed, else Edge or Chrome); closing it stops a server it started. If the server already runs, only opens the window |
 | `--service` | quiet: only warnings and errors on the terminal or journal, full log in `logs/server.log` |
 | `--no-webui` | no web interface; the console commands below still work |
 | `--verbose` | Reticulum debug log |
@@ -204,7 +224,7 @@ If the web UI port is already in use (for example another nomad-server), the ser
 | Option | |
 |---|---|
 | `--new-node NAME` | create a node folder, with a new identity and a sample `index.mu` |
-| `--set-password` | set the web UI password (empty = no password) |
+| `--set-password` | set the web UI password (empty = no password); with the server running it applies at once, no restart |
 
 **Other**: `--version`, `-h` / `--help`.
 
@@ -215,12 +235,35 @@ If the web UI port is already in use (for example another nomad-server), the ser
 | ![Stats](docs/stats.png) | ![Logs](docs/logs.png) |
 | **Stats**: requests and traffic per node, or all nodes added up, over 1 hour (per minute), 24 hours, 7, 14, 30 or 90 days, top pages and files, identified visitors | **Logs**: live, one color per node, filters for pages, visitors, files and warnings |
 
-- **Overview**: nodes with a requests chart, Reticulum interfaces, the clients connected now
+- **Overview**: nodes with a requests chart, Reticulum interfaces, the clients connected now (a closed link stays there greyed for a minute), the incoming connections history (newest first, 20 at a time, pages visited per link; the last 1000 per node, in `data/history.jsonl`)
 - **Settings**: server, web UI and node settings, identity, backup and restore, blocklist, removed nodes, shortcuts
 - **Edit pages**: a file manager with an editor on each node; a saved page is served at once
 - The address shown in the UI can be copied with one click; on a phone the layout follows
 
 The web UI listens on 127.0.0.1:8484. To reach it from other devices set `host = 0.0.0.0` in `server.cfg` (or answer yes in `install.sh`) and set a password: whoever reaches the UI can manage the nodes. Over the network, editing pages and handling identities need the password.
+
+### Password and access
+
+A safety rule: the UI can be reached from the network, so what touches files and identities is never open to a stranger.
+
+| | From the server's computer | From another device (LAN, VPN) |
+|---|---|---|
+| **No password set** | everything | everything except the actions below marked *password* |
+| **Password set** | login, then everything | login, then everything except *this computer only* |
+
+| Needs the password over the network | Only from the server's computer |
+|---|---|
+| Edit pages and files (save, new, rename, delete, upload) | Setting the first password (when none is set yet), unless *Trust local network* is on |
+| | Turning *Trust local network* on or off (or with the password) |
+| | Settings > Shortcuts (desktop icons) |
+| Import existing node (autoscan, folders, upload) | Open folder (the system's file window) |
+| Download a node's identity or backup | Browse folders on this computer (import) |
+| Restore from nS backup, Trash restore and delete for good | |
+| New or imported identity of a node | |
+
+Everything else (start, stop, settings, stats, logs, blocklist, honeypots) works from any device that reaches the UI. Set the password on the server's computer, from Settings > Web UI password or with `--set-password` (from another device it can only be changed once one is set, after login: otherwise a stranger could set one and lock you out); once set, every browser has to log in, the server's own included. Console commands (`--status`, `--stop`, ...) keep working on the server's computer.
+
+On a headless server (ssh): `--set-password` on the running server applies at once, no restart. Alone at home? Settings > Server > **Trust local network** (`[webui] trust_lan = yes`) lets the first password be set from any device on your LAN (192.168.x, 10.x, 172.16-31.x): only if you trust everyone on that network and Wi-Fi.
 
 ## Nodes
 
@@ -304,7 +347,9 @@ NomadNet may use `~/.config/nomadnetwork/` instead of `~/.nomadnetwork/`; `pages
 
 Overview > **Import existing node** does steps 1-4 below for you:
 
-- **Autoscan import** searches the computer running the server for folders with an `identity` and `pages/` with `.mu` pages (NomadNet, `rns_server_page.py` and similar) and lists them with name, path, pages and address.
+> **From another device** (LAN, VPN) import needs a web UI password: set it on the server's computer (Settings > Web UI password, or `--set-password`), log in, then import. Without it the dialog says so. It is a safety rule: import lists the server's folders and copies identities, so over the network only someone who knows the password can do it.
+
+- **Autoscan import** searches the computer running the server for folders with an `identity` and `pages/` with `.mu` pages (NomadNet, `rns_server_page.py` and similar, also inside venvs like `~/.venvs/<name>/`) and lists them with name, path, pages and address.
 - **Manual import** lets you choose the old folder yourself: **Browse folders** opens the system's folder window (on the server's own computer), or move through the folders in the window (for NomadNet, `.nomadnetwork` in your home folder). A folder without an identity is imported with a new address.
 
 The name comes from the old config (NomadNet `node_name`, `display_name` of `config.cfg.owr` or `config.cfg`), and you can change it. Identity, pages, files and `data/visits.json` are copied into a new node; the old folder is not touched. Without `.mu` pages there is nothing to import and no node is made. The new node stays stopped: do steps 5 and 6. Like editing pages, it works from the server's own computer or with a password set.
@@ -358,7 +403,7 @@ Peers that identify are listed with their LXMF address and, when they announced 
 
 ![Honeypot](docs/honeypot.png)
 
-Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze that never runs out and is never refused (fake pages, fake file downloads or both), so a crawler walks it until it disconnects, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Both lists have **Export as text**: the peer connections as shown (filter and order), the known crawlers with every honeypot they visited and what they took from it (requests, bytes sent, maze answers). **Clear list** empties the known crawlers in the web UI only: nothing is deleted, they stay caught, and one that comes back shows again with all its data. A peer caught by several honeypots is one row that names them all, with the maze pages and files it took listed by name. The stats add up all the honeypots, or show one, like the Stats tab: requests, traffic and a chart, with the maze counted apart from the bait pages. **Slow maze** (honeypot settings): every fake page or file is answered late, so a crawler's page budget costs it more time. *Adaptive* answers just before the visitor's request times out (worked out from the link's round trip, about 10 s with Reticulum's default timeout); *fixed* waits the seconds you choose. Longer than the client's timeout and the crawler gets nothing to follow. The time held shows in the peer list. **Release from maze** takes a link that did not identify out of the maze: it gets the real pages again until it opens a trap again; a new link starts fresh. **Addresses** (honeypot settings, 1 to 3): the same pages on more addresses, announced as "<name> N1", "N2", "N3" two seconds apart; crawlers keep a page budget per node, so each address catches more. An identity that connects to every address within *multi_seconds* (600 by default) is caught like a trap: people pick one node from a list, crawlers take them all. New honeypots answer with the maze and keep caught peers out of the blocklist. Live clients and the peer list show how many hops away a link came from, and its interface when Reticulum tells it (with rnsd, for identified peers: the interface rnsd uses to reach them). Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
+Hidden behind advanced mode: click the logo in **About** five times (saved in server.cfg, `[webui] advanced`, the same in every browser). A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze that never runs out and is never refused (fake pages, fake file downloads or both), so a crawler walks it until it disconnects, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Both lists have **Export as text**: the peer connections as shown (filter and order), the known crawlers with every honeypot they visited and what they took from it (requests, bytes sent, maze answers). **Clear list** empties the known crawlers in the web UI only: nothing is deleted, they stay caught, and one that comes back shows again with all its data. A peer caught by several honeypots is one row that names them all, with the maze pages and files it took listed by name. The stats add up all the honeypots, or show one, like the Stats tab: requests, traffic and a chart, with the maze counted apart from the bait pages. **Slow maze** (honeypot settings): every fake page or file is answered late, so a crawler's page budget costs it more time. *Adaptive* answers just before the visitor's request times out (worked out from the link's round trip, about 10 s with Reticulum's default timeout); *fixed* waits the seconds you choose. Longer than the client's timeout and the crawler gets nothing to follow. The time held shows in the peer list. **Release from maze** takes a link that did not identify out of the maze: it gets the real pages again until it opens a trap again; a new link starts fresh. **Addresses** (honeypot settings, 1 to 3): the same pages on more addresses, announced as "<name> N1", "N2", "N3" two seconds apart; crawlers keep a page budget per node, so each address catches more. An identity that connects to every address within *multi_seconds* (600 by default) is caught like a trap: people pick one node from a list, crawlers take them all. New honeypots answer with the maze and keep caught peers out of the blocklist. Live clients and the peer list show how many hops away a link came from, and its interface when Reticulum tells it (with rnsd, for identified peers: the interface rnsd uses to reach them). Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
 
 ## Docker
 
@@ -373,9 +418,22 @@ The UI is on port 8484, everything else in `nomad-data/`: settings, nodes, ident
 
 On a Debian server with three busy nodes and a plugin, the process uses about 95 MB: about 36 MB are Python and Reticulum, the rest the nodes, counters and the plugin's data. An empty server uses about 47 MB.
 
-## What's new in 0.1.2
+## What's new in 0.1.3
 
 Every version: [CHANGELOG.md](CHANGELOG.md).
+
+- Programs without Python: CLI and APP for Windows, see [Programs without Python](#programs-without-python).
+- App window with pywebview (`--app`, and the APP exe).
+- Dark theme by default.
+- Advanced mode saved in `server.cfg`, the same in every browser.
+- Import from another device: the reason shown when refused.
+- Autoscan finds nodes inside venvs, skips nomad-server's own folder.
+- The first web UI password can only be set on the server's computer. See [Password and access](#password-and-access).
+- Live clients keep a closed link for a minute: short visits no longer slip by unseen.
+- Incoming connections history in the Overview, with the pages visited.
+- `--set-password` applies at once on a running server; optional *Trust local network* for the first password.
+
+## What's new in 0.1.2
 
 - Import existing node: autoscan or folder explorer.
 - Import from a remote browser: folder upload.
@@ -410,6 +468,7 @@ Every version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 
+- Programs for Linux too: CLI, and APP with its own window like on Windows.
 - Integration with rBrowser2: host nodes from the browser.
 - Experimental: a fingerprint of links that do not identify (hops, interface, link settings, timing) to group the ones that probably come from the same client. An estimate, never a proof: shown, not used to block.
 

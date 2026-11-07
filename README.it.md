@@ -43,14 +43,34 @@ Se `rnsd` è acceso, i nodi usano quello; altrimenti nomad-server avvia una sua 
 | Come | Comando | Note |
 |---|---|---|
 | Terminale | `python nomad_server.py` | log a schermo, Ctrl+C lo ferma |
-| Finestra app | `python nomad_server.py --app` | la UI in una finestra sua (Edge o Chrome); chiudendola si ferma il server che ha avviato |
+| Finestra app | `python nomad_server.py --app` | la UI in una finestra sua (pywebview se installato, altrimenti Edge o Chrome); chiudendola si ferma il server che ha avviato |
 | Windows | `start.bat`, `start_hidden.vbs` | il secondo gira senza nessuna finestra |
+| Windows senza Python | `NomadServer-CLI-v0.1.3-win.exe`, `NomadServer-APP-v0.1.3-win.exe` | da [Releases](https://github.com/fr33n0w/nomad-server/releases), vedi [Programmi senza Python](#programmi-senza-python) |
 | Icone | Settings > Shortcuts | desktop e menu app, Windows e desktop Linux |
 | Debian, Ubuntu, Raspberry Pi | `bash install.sh` | service systemd all'avvio, vedi [Installer](#installer-debian-ubuntu-raspberry-pi) |
 | pipx | `pipx install git+https://github.com/fr33n0w/nomad-server` | poi `nomad-server`; dati in `~/.nomad-server` |
 | Docker | `mkdir nomad-data && docker compose up -d` | vedi [Docker](#docker) |
 
 Su una cartella gira un solo server: le stesse identità non vanno mai in rete due volte. Rilanciato con `--app`, apre solo la finestra.
+
+### Programmi senza Python
+
+Senza Python, per ora per Windows: estrai lo zip e doppio clic.
+
+| Programma | Cos'è |
+|---|---|
+| `NomadServer-CLI-v0.1.3-win.exe` | il server col suo terminale, come `python nomad_server.py` |
+| `NomadServer-APP-v0.1.3-win.exe` | senza terminale, la UI in una finestra sua; chiudendola il server si ferma |
+
+**I dati stanno accanto al programma**: `server.cfg`, `nodes\` e `data\` nella cartella del programma. Una copia estratta da un'altra parte è un server nuovo e vuoto, con indirizzi dei nodi nuovi. Per usare sempre lo stesso server, dagli la sua cartella con `--base`, anche nei collegamenti sul desktop (Proprietà > Destinazione):
+
+```
+NomadServer-APP-v0.1.3-win.exe --base D:\nomad-data
+```
+
+`--base` accetta anche la cartella di un'installazione esistente, con i suoi nodi e impostazioni: prima ferma quel server. Le icone create da Settings > Shortcuts hanno già la loro cartella.
+
+**Aggiornare**: la versione è nel nome del file, quindi uno zip nuovo estratto altrove è un server nuovo e vuoto. Estrailo sopra la cartella vecchia (`server.cfg`, `nodes\` e `data\` restano), oppure tieni i dati in una cartella a parte con `--base`. Poi premi di nuovo Settings > Shortcuts: le icone puntano ancora all'exe vecchio.
 
 ### Installer (Debian, Ubuntu, Raspberry Pi)
 
@@ -176,7 +196,7 @@ Se la porta della web UI è già occupata (per esempio da un altro nomad-server)
 | Opzione | |
 |---|---|
 | *(nessuna)* | avvia, log nel terminale |
-| `--app` | apre anche la web UI in una finestra app (Edge o Chrome); chiudendola si ferma il server che ha avviato. Se il server gira già, apre solo la finestra |
+| `--app` | apre anche la web UI in una finestra app (pywebview se installato, altrimenti Edge o Chrome); chiudendola si ferma il server che ha avviato. Se il server gira già, apre solo la finestra |
 | `--service` | silenzioso: nel terminale o nel journal solo avvisi ed errori, log completo in `logs/server.log` |
 | `--no-webui` | senza interfaccia web; i comandi da console qui sotto funzionano lo stesso |
 | `--verbose` | log di debug di Reticulum |
@@ -204,7 +224,7 @@ Se la porta della web UI è già occupata (per esempio da un altro nomad-server)
 | Opzione | |
 |---|---|
 | `--new-node NOME` | crea la cartella di un nodo, con identità nuova e un `index.mu` di esempio |
-| `--set-password` | imposta la password della web UI (vuota = nessuna password) |
+| `--set-password` | imposta la password della web UI (vuota = nessuna password); col server acceso vale subito, senza riavvio |
 
 **Altro**: `--version`, `-h` / `--help`.
 
@@ -215,12 +235,35 @@ Se la porta della web UI è già occupata (per esempio da un altro nomad-server)
 | ![Stats](docs/stats.png) | ![Logs](docs/logs.png) |
 | **Stats**: richieste e traffico per nodo, o di tutti i nodi sommati, su 1 ora (al minuto), 24 ore, 7, 14, 30 o 90 giorni, pagine e file più visti, visitatori identificati | **Logs**: in diretta, un colore per nodo, filtri per pagine, visitatori, file e avvisi |
 
-- **Overview**: i nodi con il grafico delle richieste, le interfacce Reticulum, i client collegati adesso
+- **Overview**: i nodi con il grafico delle richieste, le interfacce Reticulum, i client collegati adesso (un link chiuso resta lì in grigio per un minuto), la storia delle connessioni in arrivo (dalla più recente, 20 alla volta, pagine visitate per link; le ultime 1000 per nodo, in `data/history.jsonl`)
 - **Settings**: impostazioni di server, web UI e nodi, identità, backup e ripristino, blocklist, nodi rimossi, icone
 - **Edit pages**: gestore di file con editor per ogni nodo; una pagina salvata viene servita subito
 - L'indirizzo mostrato nella UI si copia con un clic; sul telefono il layout si adatta
 
 La web UI ascolta su 127.0.0.1:8484. Per raggiungerla da altri dispositivi metti `host = 0.0.0.0` in `server.cfg` (o rispondi sì in `install.sh`) e imposta una password: chi raggiunge la UI può gestire i nodi. Dalla rete, modificare le pagine e gestire le identità richiede la password.
+
+### Password e accessi
+
+Una regola di sicurezza: la UI si raggiunge dalla rete, quindi quello che tocca file e identità non è mai aperto a uno sconosciuto.
+
+| | Dal computer del server | Da un altro dispositivo (rete di casa, VPN) |
+|---|---|---|
+| **Senza password** | tutto | tutto tranne le azioni qui sotto segnate *password* |
+| **Con password** | login, poi tutto | login, poi tutto tranne *solo dal computer del server* |
+
+| Dalla rete richiede la password | Solo dal computer del server |
+|---|---|
+| Modificare pagine e file (salva, nuovo, rinomina, elimina, carica) | Impostare la prima password (quando non ce n'è ancora una), salvo *Trust local network* acceso |
+| | Accendere o spegnere *Trust local network* (o con la password) |
+| | Settings > Shortcuts (icone sul desktop) |
+| Import existing node (ricerca, cartelle, invio) | Open folder (la finestra file del sistema) |
+| Scaricare identity o backup di un nodo | Browse folders on this computer (import) |
+| Restore from nS backup, Trash: ripristina ed elimina per sempre | |
+| Identità nuova o importata di un nodo | |
+
+Tutto il resto (avvio, stop, impostazioni, statistiche, log, blocklist, honeypot) funziona da qualsiasi dispositivo che raggiunge la UI. La password si imposta sul computer del server, da Settings > Web UI password o con `--set-password` (da un altro dispositivo si può solo cambiare quando ce n'è già una, dopo il login: altrimenti uno sconosciuto potrebbe metterla e chiuderti fuori); una volta impostata, ogni browser deve fare login, anche quello del server. I comandi da console (`--status`, `--stop`, ...) continuano a funzionare sul computer del server.
+
+Server senza schermo (ssh): `--set-password` col server acceso vale subito, senza riavvio. Sei solo in casa? Settings > Server > **Trust local network** (`[webui] trust_lan = yes`) permette di impostare la prima password da qualsiasi dispositivo della rete di casa (192.168.x, 10.x, 172.16-31.x): solo se ti fidi di tutti quelli sulla rete e sul Wi-Fi.
 
 ## Nodi
 
@@ -304,7 +347,9 @@ NomadNet può usare `~/.config/nomadnetwork/` al posto di `~/.nomadnetwork/`; `p
 
 Overview > **Import existing node** fa per te i passi 1-4 qui sotto:
 
-- **Autoscan import** cerca sul computer dove gira il server le cartelle con un `identity` e `pages/` con pagine `.mu` (NomadNet, `rns_server_page.py` e simili) e le elenca con nome, percorso, pagine e indirizzo.
+> **Da un altro dispositivo** (rete di casa, VPN) l'import richiede una password della web UI: impostala sul computer del server (Settings > Web UI password, oppure `--set-password`), fai login e poi importa. Senza password il dialogo te lo dice. È una regola di sicurezza: l'import mostra le cartelle del server e copia le identità, quindi dalla rete può farlo solo chi conosce la password.
+
+- **Autoscan import** cerca sul computer dove gira il server le cartelle con un `identity` e `pages/` con pagine `.mu` (NomadNet, `rns_server_page.py` e simili, anche dentro i venv come `~/.venvs/<nome>/`) e le elenca con nome, percorso, pagine e indirizzo.
 - **Manual import** ti fa scegliere a mano la vecchia cartella: **Browse folders** apre la finestra cartelle del sistema (sul computer del server), oppure ti muovi tra le cartelle nella finestra (per NomadNet, `.nomadnetwork` nella tua cartella utente). Una cartella senza identity viene importata con un indirizzo nuovo.
 
 Il nome viene dal vecchio config (`node_name` di NomadNet, `display_name` di `config.cfg.owr` o `config.cfg`) e puoi cambiarlo. Identity, pagine, file e `data/visits.json` vengono copiati in un nodo nuovo; la vecchia cartella non viene toccata. Senza pagine `.mu` non c'è niente da importare e non nasce nessun nodo. Il nodo nuovo resta fermo: fai i passi 5 e 6. Come la modifica delle pagine, funziona dal computer del server o con una password impostata.
@@ -358,7 +403,7 @@ I peer che si identificano compaiono con l'indirizzo LXMF e, se ne hanno annunci
 
 ![Honeypot](docs/honeypot.png)
 
-Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto che non finisce mai e non rifiuta mai una richiesta (pagine finte, file finti da scaricare o entrambi), così il crawler gira finché non si stacca, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Tutte e due le liste hanno **Export as text**: le connessioni come le vedi (filtro e ordine), i crawler conosciuti con ogni honeypot visitato e quanto ne hanno preso (richieste, byte inviati, risposte del maze). **Clear list** svuota i crawler conosciuti solo nella web UI: non si cancella niente, restano catturati, e uno che torna ricompare con tutti i suoi dati. Un peer preso da più honeypot è una riga sola che li nomina tutti, con le pagine e i file del maze che ha preso, per nome. Le statistiche sommano tutti gli honeypot, o ne mostrano uno, come la scheda Stats: richieste, traffico e grafico, con il maze contato a parte rispetto alle pagine esca. **Slow maze** (impostazioni dell'honeypot): ogni pagina o file finto risponde in ritardo, così il budget di pagine di un crawler gli costa più tempo. *Adaptive* risponde poco prima che la richiesta del visitatore scada (calcolato dal tempo di andata e ritorno del link, circa 10 s con il timeout predefinito di Reticulum); *fixed* aspetta i secondi che scegli. Oltre il timeout del client il crawler non riceve niente da seguire. Il tempo trattenuto si vede nella lista dei peer. **Release from maze** toglie dal maze un link che non si è identificato: riceve di nuovo le pagine vere finché non apre di nuovo una trappola; un link nuovo riparte da zero. **Addresses** (impostazioni honeypot, da 1 a 3): le stesse pagine su più indirizzi, annunciati come "<nome> N1", "N2", "N3" a due secondi uno dall'altro; i crawler hanno un budget di pagine per nodo, quindi ogni indirizzo ne cattura di più. Un'identità che si collega a tutti gli indirizzi entro *multi_seconds* (600 di default) viene presa come con una trappola: una persona sceglie un nodo dalla lista, i crawler li prendono tutti. Gli honeypot nuovi rispondono col maze e tengono i peer presi fuori dalla blocklist. Live clients e la lista peer mostrano da quanti hop arriva un link e la sua interfaccia quando Reticulum la dice (con rnsd, per i peer identificati: l'interfaccia che rnsd usa per raggiungerli). Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
+Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About** (salvata in server.cfg, `[webui] advanced`, uguale in ogni browser). Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto che non finisce mai e non rifiuta mai una richiesta (pagine finte, file finti da scaricare o entrambi), così il crawler gira finché non si stacca, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Tutte e due le liste hanno **Export as text**: le connessioni come le vedi (filtro e ordine), i crawler conosciuti con ogni honeypot visitato e quanto ne hanno preso (richieste, byte inviati, risposte del maze). **Clear list** svuota i crawler conosciuti solo nella web UI: non si cancella niente, restano catturati, e uno che torna ricompare con tutti i suoi dati. Un peer preso da più honeypot è una riga sola che li nomina tutti, con le pagine e i file del maze che ha preso, per nome. Le statistiche sommano tutti gli honeypot, o ne mostrano uno, come la scheda Stats: richieste, traffico e grafico, con il maze contato a parte rispetto alle pagine esca. **Slow maze** (impostazioni dell'honeypot): ogni pagina o file finto risponde in ritardo, così il budget di pagine di un crawler gli costa più tempo. *Adaptive* risponde poco prima che la richiesta del visitatore scada (calcolato dal tempo di andata e ritorno del link, circa 10 s con il timeout predefinito di Reticulum); *fixed* aspetta i secondi che scegli. Oltre il timeout del client il crawler non riceve niente da seguire. Il tempo trattenuto si vede nella lista dei peer. **Release from maze** toglie dal maze un link che non si è identificato: riceve di nuovo le pagine vere finché non apre di nuovo una trappola; un link nuovo riparte da zero. **Addresses** (impostazioni honeypot, da 1 a 3): le stesse pagine su più indirizzi, annunciati come "<nome> N1", "N2", "N3" a due secondi uno dall'altro; i crawler hanno un budget di pagine per nodo, quindi ogni indirizzo ne cattura di più. Un'identità che si collega a tutti gli indirizzi entro *multi_seconds* (600 di default) viene presa come con una trappola: una persona sceglie un nodo dalla lista, i crawler li prendono tutti. Gli honeypot nuovi rispondono col maze e tengono i peer presi fuori dalla blocklist. Live clients e la lista peer mostrano da quanti hop arriva un link e la sua interfaccia quando Reticulum la dice (con rnsd, per i peer identificati: l'interfaccia che rnsd usa per raggiungerli). Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
 
 ## Docker
 
@@ -373,9 +418,22 @@ La UI è sulla porta 8484, tutto il resto in `nomad-data/`: impostazioni, nodi, 
 
 Su un server Debian con tre nodi frequentati e un plugin, il processo usa circa 95 MB: circa 36 MB sono Python e Reticulum, il resto nodi, contatori e i dati del plugin. Un server vuoto usa circa 47 MB.
 
-## Novità della 0.1.2
+## Novità della 0.1.3
 
 Tutte le versioni: [CHANGELOG.md](CHANGELOG.md).
+
+- Programmi senza Python: CLI e APP per Windows, vedi [Programmi senza Python](#programmi-senza-python).
+- Finestra app con pywebview (`--app`, e l'exe APP).
+- Tema scuro di default.
+- Modalità avanzata salvata in `server.cfg`, uguale in ogni browser.
+- Import da un altro dispositivo: se rifiutato, dice perché.
+- La ricerca automatica trova i nodi nei venv e salta la cartella di nomad-server.
+- La prima password della web UI si imposta solo dal computer del server. Vedi [Password e accessi](#password-e-accessi).
+- I client live tengono un link chiuso per un minuto: le visite brevi non sfuggono più.
+- Storia delle connessioni in arrivo nell'Overview, con le pagine visitate.
+- `--set-password` vale subito col server acceso; *Trust local network* facoltativo per la prima password.
+
+## Novità della 0.1.2
 
 - Import existing node: ricerca automatica o esplora cartelle.
 - Import da browser remoto: invio della cartella.
@@ -410,6 +468,7 @@ Tutte le versioni: [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 
+- Programmi anche per Linux: CLI, e APP con la sua finestra come su Windows.
 - Integrazione con rBrowser2: ospitare nodi dal browser.
 - Sperimentale: un'impronta dei link che non si identificano (hop, interfaccia, impostazioni del link, ritmo) per raggruppare quelli che probabilmente vengono dallo stesso client. Una stima, mai una prova: mostrata, non usata per bloccare.
 
