@@ -213,7 +213,7 @@ Se la porta della web UI è già occupata (per esempio da un altro nomad-server)
 | | |
 |---|---|
 | ![Stats](docs/stats.png) | ![Logs](docs/logs.png) |
-| **Stats**: richieste e traffico per nodo su 1 ora (al minuto), 24 ore, 7, 14, 30 o 90 giorni, pagine e file più visti, visitatori identificati | **Logs**: in diretta, un colore per nodo, filtri per pagine, visitatori, file e avvisi |
+| **Stats**: richieste e traffico per nodo, o di tutti i nodi sommati, su 1 ora (al minuto), 24 ore, 7, 14, 30 o 90 giorni, pagine e file più visti, visitatori identificati | **Logs**: in diretta, un colore per nodo, filtri per pagine, visitatori, file e avvisi |
 
 - **Overview**: i nodi con il grafico delle richieste, le interfacce Reticulum, i client collegati adesso
 - **Settings**: impostazioni di server, web UI e nodi, identità, backup e ripristino, blocklist, nodi rimossi, icone
@@ -248,7 +248,7 @@ Le pagine si leggono a ogni richiesta, quindi una pagina modificata è servita s
 | `footer.visits` | yes | riga delle visite in fondo alle pagine senza un contatore loro |
 | `footer.watermark` | yes | riga "served by nomad-server" |
 
-**Backup node** salva uno zip con identità, impostazioni, pagine, file e contatori; **Restore a node from backup** lo riporta con lo stesso indirizzo. **Import identity** dà a un nodo l'indirizzo di uno esistente. Due nodi dello stesso server non possono mai avere la stessa identità.
+**Backup node** salva uno zip con identità, impostazioni, pagine, file e contatori; **Restore from nS backup** lo riporta con lo stesso indirizzo. **Import existing node** porta qui un nodo di NomadNet o di un altro server (vedi [Portare qui un nodo esistente](#portare-qui-un-nodo-esistente)). **Import identity** dà a un nodo l'indirizzo di uno esistente. Due nodi dello stesso server non possono mai avere la stessa identità.
 
 ## Contatori
 
@@ -300,7 +300,16 @@ L'indirizzo di un nodo viene dal suo file `identity` (la chiave privata). Dai qu
 
 NomadNet può usare `~/.config/nomadnetwork/` al posto di `~/.nomadnetwork/`; `pages_path` e `files_path` nella sezione `[node]` del suo `config` possono puntare altrove. Su Windows `~` è `C:\Users\<tuo utente>`.
 
-**Passi**
+**Con Import existing node**
+
+Overview > **Import existing node** fa per te i passi 1-4 qui sotto:
+
+- **Autoscan import** cerca sul computer dove gira il server le cartelle con un `identity` e `pages/` con pagine `.mu` (NomadNet, `rns_server_page.py` e simili) e le elenca con nome, percorso, pagine e indirizzo.
+- **Manual import** ti fa scegliere a mano la vecchia cartella: **Browse folders** apre la finestra cartelle del sistema (sul computer del server), oppure ti muovi tra le cartelle nella finestra (per NomadNet, `.nomadnetwork` nella tua cartella utente). Una cartella senza identity viene importata con un indirizzo nuovo.
+
+Il nome viene dal vecchio config (`node_name` di NomadNet, `display_name` di `config.cfg.owr` o `config.cfg`) e puoi cambiarlo. Identity, pagine, file e `data/visits.json` vengono copiati in un nodo nuovo; la vecchia cartella non viene toccata. Senza pagine `.mu` non c'è niente da importare e non nasce nessun nodo. Il nodo nuovo resta fermo: fai i passi 5 e 6. Come la modifica delle pagine, funziona dal computer del server o con una password impostata.
+
+**A mano**
 
 1. **Create new node**, con il nome che aveva il vecchio nodo. Parte fermo, quindi la sua identità nuova non va mai in rete.
 2. Settings > Node > **Import identity**, scegli il vecchio file `identity`. L'indirizzo mostrato sotto il nodo diventa quello vecchio: controlla che sia quello che conosci.
@@ -349,7 +358,7 @@ I peer che si identificano compaiono con l'indirizzo LXMF e, se ne hanno annunci
 
 ![Honeypot](docs/honeypot.png)
 
-Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto che non finisce mai e non rifiuta mai una richiesta (pagine finte, file finti da scaricare o entrambi), così il crawler gira finché non si stacca, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Tutte e due le liste hanno **Export as text**: le connessioni come le vedi (filtro e ordine), i crawler conosciuti con ogni honeypot visitato e quanto ne hanno preso (richieste, byte inviati, risposte del maze). **Clear list** svuota i crawler conosciuti solo nella web UI: non si cancella niente, restano catturati, e uno che torna ricompare con tutti i suoi dati. Un peer preso da più honeypot è una riga sola che li nomina tutti, con le pagine e i file del maze che ha preso, per nome. Le statistiche sommano tutti gli honeypot, o ne mostrano uno, come la scheda Stats: richieste, traffico e grafico, con il maze contato a parte rispetto alle pagine esca. **Slow maze** (impostazioni dell'honeypot): ogni pagina o file finto risponde in ritardo, così il budget di pagine di un crawler gli costa più tempo. *Adaptive* risponde poco prima che la richiesta del visitatore scada (calcolato dal tempo di andata e ritorno del link, circa 10 s con il timeout predefinito di Reticulum); *fixed* aspetta i secondi che scegli. Oltre il timeout del client il crawler non riceve niente da seguire. Il tempo trattenuto si vede nella lista dei peer. **Release from maze** toglie dal maze un link che non si è identificato: riceve di nuovo le pagine vere finché non apre di nuovo una trappola; un link nuovo riparte da zero. Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
+Nascosti dietro la modalità avanzata: clicca cinque volte il logo in **About**. Un honeypot è un nodo pieno di pagine esca credibili, con link trappola che le persone non vedono e i crawler seguono. Chi apre una trappola, apre un link nuovo per ogni pagina o legge troppe pagine troppo in fretta viene preso: per indirizzo LXMF se si è identificato, altrimenti per il resto del suo link. Ai peer presi si può dare un tarpit o un labirinto che non finisce mai e non rifiuta mai una richiesta (pagine finte, file finti da scaricare o entrambi), così il crawler gira finché non si stacca, e lo ricevono anche quando tornano. Finiscono nella blocklist solo se attivi *Put caught visitors in the blocklist*. La scheda Honeypot tiene lo storico delle connessioni, i crawler conosciuti e se tornano, anche su honeypot nuovi. Tutte e due le liste hanno **Export as text**: le connessioni come le vedi (filtro e ordine), i crawler conosciuti con ogni honeypot visitato e quanto ne hanno preso (richieste, byte inviati, risposte del maze). **Clear list** svuota i crawler conosciuti solo nella web UI: non si cancella niente, restano catturati, e uno che torna ricompare con tutti i suoi dati. Un peer preso da più honeypot è una riga sola che li nomina tutti, con le pagine e i file del maze che ha preso, per nome. Le statistiche sommano tutti gli honeypot, o ne mostrano uno, come la scheda Stats: richieste, traffico e grafico, con il maze contato a parte rispetto alle pagine esca. **Slow maze** (impostazioni dell'honeypot): ogni pagina o file finto risponde in ritardo, così il budget di pagine di un crawler gli costa più tempo. *Adaptive* risponde poco prima che la richiesta del visitatore scada (calcolato dal tempo di andata e ritorno del link, circa 10 s con il timeout predefinito di Reticulum); *fixed* aspetta i secondi che scegli. Oltre il timeout del client il crawler non riceve niente da seguire. Il tempo trattenuto si vede nella lista dei peer. **Release from maze** toglie dal maze un link che non si è identificato: riceve di nuovo le pagine vere finché non apre di nuovo una trappola; un link nuovo riparte da zero. **Addresses** (impostazioni honeypot, da 1 a 3): le stesse pagine su più indirizzi, annunciati come "<nome> N1", "N2", "N3" a due secondi uno dall'altro; i crawler hanno un budget di pagine per nodo, quindi ogni indirizzo ne cattura di più. Un'identità che si collega a tutti gli indirizzi entro *multi_seconds* (600 di default) viene presa come con una trappola: una persona sceglie un nodo dalla lista, i crawler li prendono tutti. Gli honeypot nuovi rispondono col maze e tengono i peer presi fuori dalla blocklist. Live clients e la lista peer mostrano da quanti hop arriva un link e la sua interfaccia quando Reticulum la dice (con rnsd, per i peer identificati: l'interfaccia che rnsd usa per raggiungerli). Spegnere la modalità avanzata ferma tutti gli honeypot, che restano fermi finché non li riavvii, e li nasconde da tutte le schede; la blocklist resta com'è.
 
 ## Docker
 
@@ -363,6 +372,22 @@ La UI è sulla porta 8484, tutto il resto in `nomad-data/`: impostazioni, nodi, 
 ## Risorse
 
 Su un server Debian con tre nodi frequentati e un plugin, il processo usa circa 95 MB: circa 36 MB sono Python e Reticulum, il resto nodi, contatori e i dati del plugin. Un server vuoto usa circa 47 MB.
+
+## Novità della 0.1.2
+
+Tutte le versioni: [CHANGELOG.md](CHANGELOG.md).
+
+- Import existing node: ricerca automatica o esplora cartelle.
+- Import da browser remoto: invio della cartella.
+- Pulsante Restore from nS backup rinominato.
+- I nodi fermi mostrano pagine e file.
+- Nodi riannunciati quando rnsd torna.
+- Honeypot: fino a 3 indirizzi, N1 N2 N3.
+- Stesso peer su tutti gli indirizzi: preso.
+- Honeypot nuovi rispondono col maze.
+- Hop e interfaccia dei link in arrivo.
+- Stats: tutti i nodi sommati.
+- Pulsante Reload in alto.
 
 ## Novità della 0.1.1
 
@@ -385,7 +410,8 @@ Su un server Debian con tre nodi frequentati e un plugin, il processo usa circa 
 
 ## Roadmap
 
-- Honeypot con più indirizzi esca ciascuno: i crawler hanno un budget di pagine per indirizzo.
+- Integrazione con rBrowser2: ospitare nodi dal browser.
+- Sperimentale: un'impronta dei link che non si identificano (hop, interfaccia, impostazioni del link, ritmo) per raggruppare quelli che probabilmente vengono dallo stesso client. Una stima, mai una prova: mostrata, non usata per bloccare.
 
 ## Ringraziamenti
 

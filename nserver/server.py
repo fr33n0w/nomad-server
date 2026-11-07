@@ -85,9 +85,40 @@ class Server:
         if not self.nodes:
             log.line("No nodes yet: add one from the web UI or with --new-node NAME", kind="warn")
 
+    def shared_online(self):
+        """None with an own instance, else whether the link to rnsd is up."""
+        if not (self.reticulum and self.reticulum.is_connected_to_shared_instance):
+            return None
+        for i in RNS.Transport.interfaces:
+            if type(i).__name__ == "LocalClientInterface":
+                return bool(i.online)
+        return None
+
+    def check_rnsd(self, now):
+        # rnsd restarted: our nodes are unknown there until they announce again
+        up = self.shared_online()
+        if up is False and self._rnsd_up:
+            log.line("Lost the connection to rnsd: waiting for it", kind="warn")
+            self._rnsd_down = now
+        if up and self._rnsd_up is False:
+            log.line("Connected to rnsd again after %d s: announcing the running nodes" % (now - self._rnsd_down))
+            self._reannounce_at = now + 8
+        if up is not None:
+            self._rnsd_up = up
+        if self._reannounce_at and now >= self._reannounce_at:
+            self._reannounce_at = None
+            for node in list(self.nodes.values()):
+                if node.state == "running":
+                    node.announce()
+
     def jobs(self):
+        self._rnsd_up, self._rnsd_down, self._reannounce_at = self.shared_online(), 0, None
         while self.running:
             now = time.time()
+            try:
+                self.check_rnsd(now)
+            except Exception as e:
+                log.line("rnsd check error: %s" % e, kind="error")
             for node in list(self.nodes.values()):
                 try:
                     node.job(now)
@@ -153,7 +184,7 @@ class Server:
         traps = honeypot.build(node.pages_path, node.name)
         honeypot.build_files(node.files_path, node.pages_path)
         node.cfg.set({"node": {"require_identify": "no", "type": "honeypot"},
-                      "honeypot": {"traps": traps, "mode": "tarpit", "reason": "Crawler (honeypot)",
+                      "honeypot": {"traps": traps, "mode": "maze", "to_blocklist": "no", "reason": "Crawler (honeypot)",
                                    "autoblock": "yes", "crawler_pages": "30", "crawler_seconds": "600",
                                    "hop_links": "6", "hop_seconds": "7200",
                                    "long_pages": "60", "long_seconds": "3600"},

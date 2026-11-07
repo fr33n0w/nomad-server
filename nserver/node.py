@@ -165,6 +165,32 @@ def peer_name(identity_hex):
     return name
 
 
+def link_via(link):
+    """Hops of an incoming link and its interface ('' behind rnsd: only rnsd knows it)."""
+    try:
+        hops = max(1, round((link.establishment_timeout - RNS.Link.KEEPALIVE) / RNS.Link.ESTABLISHMENT_TIMEOUT_PER_HOP))
+    except Exception:
+        hops = 0
+    iface = link.attached_interface
+    if iface is None or type(iface).__name__ == "LocalClientInterface":
+        return "", hops
+    return str(getattr(iface, "name", "") or iface), hops
+
+
+def path_back(entry, dest_hash):
+    try:
+        r = RNS.Reticulum.get_instance()
+        name = r.get_next_hop_if_name(dest_hash) if r else None
+        if name:
+            entry["via"], entry["via_path"] = str(name), True
+    except Exception:
+        pass
+
+
+def via_of(e):
+    return {"via": e.get("via", ""), "via_path": bool(e.get("via_path")), "hops": e.get("hops", 0), "addr": e.get("addr", 0)}
+
+
 def announced_name(dest):
     """The name in the last announce heard from a destination (LXMF sends
     msgpack [name, stamp cost], NomadNet nodes the bare name)."""
@@ -202,6 +228,8 @@ class Node:
         self.error = ""
         self.identity = None
         self.destination = None
+        self.extra = []  # honeypot: more addresses (N2, N3) serving the same pages
+        self.multi = {}  # honeypot: LXMF -> {address number: last time}
         self.plugin = None
         self.registered = set()
         self.partials = set()
@@ -216,6 +244,7 @@ class Node:
         self.announce_due = None
         self.pages_count = 0
         self.files_count = 0
+        self.rescan()
 
     # ---- settings ----
 
@@ -255,7 +284,15 @@ class Node:
             except Exception as e:
                 self.fail("could not start: %s" % e)
                 return
-            self.destination.set_link_established_callback(self.link_open)
+            self.destination.set_link_established_callback(lambda link: self.link_open(link, 1))
+            self.extra = []
+            try:
+                for n in range(2, self.address_count() + 1):
+                    d = RNS.Destination(self.load_identity(n), RNS.Destination.IN, RNS.Destination.SINGLE, "nomadnetwork", "node")
+                    d.set_link_established_callback(lambda link, n=n: self.link_open(link, n))
+                    self.extra.append(d)
+            except Exception as e:
+                self.log("Extra honeypot addresses not started: %s" % e, "error")
             os.makedirs(self.pages_path, exist_ok=True)
             os.makedirs(self.files_path, exist_ok=True)
             self.load_plugin()
@@ -266,6 +303,8 @@ class Node:
             if self.cfg.getbool("node", "announce_at_start"):
                 self.announce_due = time.time() + random.randint(5, 15)
             self.log("Started, address %s, %d pages, %d files" % (self.address, self.pages_count, self.files_count))
+            for n, d in enumerate(self.extra, 2):
+                self.log("Also on address N%d %s" % (n, RNS.hexrep(d.hash, delimit=False)))
             if self.is_honeypot:
                 self.preload_crawlers()
 
@@ -299,10 +338,29 @@ class Node:
             if self.is_honeypot and self.cfg.getbool("honeypot", "autoblock"):
                 self.catch(entry, why)
 
+    def check_multi(self, entry, who):
+        """The same LXMF on every address of this honeypot within multi_seconds:
+        people pick one node from a list, crawlers take them all."""
+        window = self.cfg.getint("honeypot", "multi_seconds")
+        if window <= 0:
+            return
+        now = time.time()
+        seen = self.multi.setdefault(who, {})
+        seen[entry["addr"]] = now
+        for k in [k for k, t in seen.items() if t < now - window]:
+            del seen[k]
+        total = len(self.extra) + 1
+        if len(seen) >= total:
+            why = "on all %d addresses of the honeypot in %s" % (total, log.span(now - min(seen.values())))
+            self.log("LXMF %s connected %s" % (who, why), "warn")
+            self.multi.pop(who, None)
+            self.catch(entry, why)
+
     def fail(self, why):
         self.state = "error"
         self.error = why
         self.destination = None
+        self.extra = []
         self.log("Not started: " + why, "error")
 
     def stop(self):
@@ -317,14 +375,16 @@ class Node:
                 except Exception:
                     pass
             self.links = {}
-            for path in list(self.registered):
-                self.destination.deregister_request_handler(path)
+            for d in self.dests():
+                for path in list(self.registered):
+                    d.deregister_request_handler(path)
+                try:
+                    RNS.Transport.deregister_destination(d)
+                except Exception:
+                    pass
             self.registered = set()
-            try:
-                RNS.Transport.deregister_destination(self.destination)
-            except Exception:
-                pass
             self.destination = None
+            self.extra = []
             self.stop_plugin()
             self.stats.flush(force=True)
             self.log("Stopped")
@@ -333,7 +393,42 @@ class Node:
         self.stop()
         self.start()
 
-    def load_identity(self):
+    def address_count(self):
+        if not self.is_honeypot:
+            return 1
+        return min(3, max(1, self.cfg.getint("honeypot", "addresses")))
+
+    def dests(self):
+        return ([self.destination] if self.destination else []) + self.extra
+
+    def extra_addresses(self):
+        """Addresses N2, N3 of a honeypot, also when stopped (from identity2, identity3)."""
+        if self.extra:
+            return [RNS.hexrep(d.hash, delimit=False) for d in self.extra]
+        out = []
+        for n in range(2, self.address_count() + 1):
+            path = os.path.join(self.folder, "identity%d" % n)
+            if not os.path.isfile(path):
+                out.append("")  # made at the first start
+                continue
+            try:
+                ident = RNS.Identity.from_file(path)
+                out.append(RNS.hexrep(RNS.Destination.hash_from_name_and_identity("nomadnetwork.node", ident), delimit=False))
+            except Exception:
+                out.append("")
+        return out
+
+    def load_identity(self, n=1):
+        if n > 1:
+            # honeypot addresses N2, N3: their own identity, made the first time
+            path = os.path.join(self.folder, "identity%d" % n)
+            if os.path.isfile(path):
+                ident = RNS.Identity.from_file(path)
+                if ident is not None:
+                    return ident
+            ident = RNS.Identity()
+            ident.to_file(path)
+            return ident
         path = os.path.join(self.folder, "identity")
         if os.path.isfile(path):
             self.identity = RNS.Identity.from_file(path)
@@ -415,6 +510,9 @@ class Node:
     def rescan(self):
         with self.lock:
             if not self.destination:
+                # stopped: only the counts, so the card shows what is on disk
+                self.pages_count = len(self.scan(self.pages_path, "/page"))
+                self.files_count = len(self.scan(self.files_path, "/file"))
                 return
             pages = set(self.scan(self.pages_path, "/page")) | set(self.plugin_paths())
             if self.is_honeypot:
@@ -427,7 +525,8 @@ class Node:
                 pages.add("/page/index.mu")
             want = pages | files | {"/media"}
             for path in self.registered - want:
-                self.destination.deregister_request_handler(path)
+                for d in self.dests():
+                    d.deregister_request_handler(path)
             for path in sorted(want - self.registered):
                 if path == "/media":
                     gen, compress = self.serve_media, True
@@ -435,8 +534,9 @@ class Node:
                     gen, compress = self.serve_file, 32_000_000
                 else:
                     gen, compress = self.serve_page, True
-                self.destination.register_request_handler(path, response_generator=gen,
-                                                          allow=RNS.Destination.ALLOW_ALL, auto_compress=compress)
+                for d in self.dests():
+                    d.register_request_handler(path, response_generator=gen,
+                                               allow=RNS.Destination.ALLOW_ALL, auto_compress=compress)
             self.registered = want
             self.partials = self.find_partials(pages)
             self.last_rescan = time.time()
@@ -663,16 +763,20 @@ class Node:
 
     # ---- visitors ----
 
-    def link_open(self, link):
+    def link_open(self, link, addr=1):
+        via, hops = link_via(link)
         with self.lock:
             self.links[link.link_id] = {"link": link, "since": time.time(), "who": None, "name": "",
                                         "requests": 0, "refreshes": 0, "bytes": 0, "last": {},
-                                        "recent": collections.deque(), "crawler": False}
+                                        "recent": collections.deque(), "crawler": False, "via": via, "hops": hops,
+                                        "addr": addr if self.extra else 0}
             online = len(self.links)
         self.stats.bump("connects")
         link.set_link_closed_callback(self.link_closed)
         link.set_remote_identified_callback(self.link_identified)
-        self.log("Connected link %s, %d online" % (short(link.link_id), online), "connect")
+        self.log("Connected link %s%s, %s%s, %d online" % (short(link.link_id), (" on N%d" % addr) if self.extra else "",
+                                                       log.plural(hops, "hop"),
+                                                       (" via " + via) if via else "", online), "connect")
 
     def link_identified(self, link, identity):
         who = RNS.Destination.hash_from_name_and_identity("lxmf.delivery", identity)
@@ -688,8 +792,13 @@ class Node:
                 # the identity hash too: Reticulum's blackhole works on identities
                 entry["who"], entry["name"] = who_hex, name
                 entry["identity"] = RNS.hexrep(identity.hash, delimit=False)
+                if not entry.get("via"):
+                    # behind rnsd: the interface rnsd uses to reach this peer, where it came from
+                    threading.Thread(target=path_back, args=(entry, who), daemon=True).start()
         self.log("Identified link %s as LXMF %s%s" % (short(link.link_id), who_hex, (' "%s"' % name) if name else ""), "connect")
         blocked = self.server.blocked_entry(who_hex, self)
+        if entry and entry.get("addr") and not entry.get("trapped"):
+            self.check_multi(entry, who_hex)
         if self.is_honeypot and who_hex in self.server.crawlers():
             # a crawler seen before, back on a honeypot
             self.server.crawler_seen(who_hex, self, name, RNS.hexrep(identity.hash, delimit=False))
@@ -959,7 +1068,7 @@ class Node:
                "requests": entry["requests"], "bytes": entry["bytes"],
                "pages": list(dict.fromkeys(p for _, p in entry["recent"]))[:PAGES_KEPT],
                "tries": entry.get("tries", 0), "tried": entry.get("tried", [])[:12], "trap": entry.get("trap", []), "files": entry.get("files", []),
-               "caught": entry.get("caught_why", ""), "mode": entry.get("trapped", ""), **maze_of(entry)}
+               "caught": entry.get("caught_why", ""), "mode": entry.get("trapped", ""), **maze_of(entry), **via_of(entry)}
         with self.lock:
             peers = self.peers()
             peers.append(rec)
@@ -982,7 +1091,7 @@ class Node:
                      "bytes": e["bytes"], "pages": list(dict.fromkeys(p for _, p in e["recent"]))[:PAGES_KEPT],
                      "tries": e.get("tries", 0), "tried": e.get("tried", [])[:12], "trap": e.get("trap", []), "files": e.get("files", []),
                      "caught": e.get("caught_why", ""), "mode": e.get("trapped", ""), "online": round(now - e["since"]),
-                     **maze_of(e)}
+                     **maze_of(e), **via_of(e)}
                     for h, e in self.links.items()]
 
     def caught_count(self):
@@ -1097,11 +1206,23 @@ class Node:
         with self.lock:
             if not self.destination:
                 return False
-            self.destination.announce(app_data=self.name.encode("utf-8"))
+            name = self.name + (" N1" if self.extra else "")
+            self.destination.announce(app_data=name.encode("utf-8"))
             self.last_announce = time.time()
             self.announce_due = None
-        self.log("Announced as \"%s\"" % self.name, "announce")
+            extra = list(self.extra)
+        self.log("Announced as \"%s\"" % name, "announce")
+        for n, d in enumerate(extra, 2):
+            # not all at once on the mesh
+            threading.Timer(2 * (n - 1), self.announce_extra, (d, n)).start()
         return True
+
+    def announce_extra(self, dest, n):
+        if dest not in self.extra:
+            return
+        name = "%s N%d" % (self.name, n)
+        dest.announce(app_data=name.encode("utf-8"))
+        self.log("Announced address N%d as \"%s\"" % (n, name), "announce")
 
     def job(self, now):
         if self.state != "running":
@@ -1124,8 +1245,9 @@ class Node:
             online = [{"link": short(h), "since": e["since"], "who": e["who"], "name": e["name"],
                        "requests": e["requests"], "refreshes": e["refreshes"], "bytes": e["bytes"],
                        "rx": e["link"].rxbytes, "tx": e["link"].txbytes,
-                       "crawler": e["crawler"], "blocked": e.get("trapped", "")} for h, e in self.links.items()]
+                       "crawler": e["crawler"], "blocked": e.get("trapped", ""), **via_of(e)} for h, e in self.links.items()]
         return {"id": self.id, "name": self.name, "address": self.address, "state": self.state,
+                "addresses": self.extra_addresses() if self.is_honeypot else [],
                 "error": self.error, "started": self.started, "last_announce": self.last_announce,
                 "announce_interval": self.cfg.getint("node", "announce_interval"),
                 "pages": self.pages_count, "files": self.files_count,

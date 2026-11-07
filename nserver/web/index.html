@@ -42,6 +42,9 @@
           <svg class="i-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.1M10 16.1v2.1M1.8 10h2.1M16.1 10h2.1M4.2 4.2l1.5 1.5M14.3 14.3l1.5 1.5M4.2 15.8l1.5-1.5M14.3 5.7l1.5-1.5"/></svg>
           <svg class="i-moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9z"/></svg>
         </button>
+        <button id="reload" class="icon-btn" title="Reload the page" aria-label="Reload the page">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16 3.5v3.2h-3.2"/></svg>
+        </button>
         <button id="logout" class="btn ghost small hidden">Log out</button>
       </div>
     </div>
@@ -53,8 +56,9 @@
       <div class="sec-head">
         <h2>Nodes</h2>
         <span class="row-btns tight">
-          <button id="new-node-btn" class="btn small">Create new node</button>
-          <button id="restore-btn" class="btn small ghost">Restore a node from backup</button>
+          <button id="new-node-btn" class="btn small" title="New empty node with a new address and a sample home page">Create new node</button>
+          <button id="import-btn" class="btn small ghost" title="Bring here a node of NomadNet or another server, with its address, pages and files">Import existing node</button>
+          <button id="restore-btn" class="btn small ghost" title="Bring back a node from a zip made with Backup node">Restore from nS backup</button>
           <input id="restore-file" type="file" accept=".zip,application/zip" class="hidden" aria-label="Backup zip">
         </span>
       </div>
@@ -269,6 +273,17 @@
       <button value="ok" id="dlg-ok" class="btn primary">OK</button>
     </div>
   </form>
+</dialog>
+<dialog id="imp" class="imp" aria-labelledby="imp-title">
+  <h2 id="imp-title">Import existing node</h2>
+  <div id="imp-body"></div>
+  <input id="imp-folder" type="file" webkitdirectory multiple class="hidden" aria-label="Folder of the old node">
+  <div class="row-btns end">
+    <button id="imp-back" class="btn ghost hidden" title="Back to the choice between Autoscan and Manual">Back</button>
+    <span class="grow"></span>
+    <button id="imp-cancel" class="btn ghost" title="Close without importing">Cancel</button>
+    <button id="imp-go" class="btn primary hidden" title="Copy it into a new node, stopped">Import node</button>
+  </div>
 </dialog>
 <dialog id="pm" class="pm" aria-labelledby="pm-title">
   <div class="pm-head">

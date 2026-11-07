@@ -19,7 +19,7 @@ from urllib.parse import urlparse, parse_qs
 
 import RNS
 
-from . import backup, config, files, log, shortcuts, VERSION
+from . import backup, config, files, importer, log, shortcuts, VERSION
 from .node import peer_name
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -307,6 +307,16 @@ class Handler(BaseHTTPRequestHandler):
                 node = self.node_arg(q)
                 return self.send(200, {"items": files.tree(node), "edit": self.edit_ok(),
                                        "can_open": self.local() and desktop()})
+            if p in ("/api/import/scan", "/api/import/browse"):
+                # lists the machine's folders: same rule as editing
+                if not self.edit_ok():
+                    raise PermissionError(NO_EDIT.replace("Editing pages", "Importing nodes"))
+                if p.endswith("scan"):
+                    return self.send(200, importer.scan(srv))
+                out = importer.browse(q.get("path", ""), srv)
+                out["found"] = importer.detect(out["path"], srv) if out["path"] else None
+                out["can_pick"] = self.local() and desktop()
+                return self.send(200, out)
             if p == "/api/file":
                 return self.send(200, files.read(self.node_arg(q), q.get("root", ""), q.get("path", "")))
             parts = p.strip("/").split("/")
@@ -353,7 +363,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         p = url.path
         parts = p.strip("/").split("/")
-        if p in ("/api/files/upload", "/api/nodes/restore") or (len(parts) == 4 and parts[:2] == ["api", "node"] and parts[3] == "identity"):
+        if p in ("/api/files/upload", "/api/nodes/restore", "/api/import/upload") or (len(parts) == 4 and parts[:2] == ["api", "node"] and parts[3] == "identity"):
             return self.raw(p, parts, {k: v[0] for k, v in parse_qs(url.query).items()})
         data = self.body()
         if p == "/api/login":
@@ -399,6 +409,9 @@ class Handler(BaseHTTPRequestHandler):
                 node.log("Uploaded %s/%s from the web UI" % (q.get("root"), q.get("path")))
                 node.rescan()
                 return self.send(200, {"ok": True})
+            if p == "/api/import/upload":
+                folder = importer.upload_part(self.ui.server, q.get("session", ""), q.get("path", ""), body)
+                return self.send(200, {"ok": True, "folder": folder})
             if p == "/api/nodes/restore":
                 node = backup.restore(self.ui.server, body)
                 return self.send(200, {"ok": True, "id": node.id, "address": node.address})
@@ -491,6 +504,16 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/nodes/honeypot":
             node = srv.new_honeypot(data.get("name", "") or "Archive")
             return {"ok": True, "id": node.id}
+        if p == "/api/import/pick":
+            if not (self.local() and desktop()):
+                raise PermissionError("The folder chooser opens only on the computer running the server")
+            return {"ok": True, "path": importer.pick_folder(data.get("start", ""))}
+        if p == "/api/nodes/import":
+            if not self.edit_ok():
+                raise PermissionError(NO_EDIT.replace("Editing pages", "Importing nodes"))
+            node, info = importer.import_node(srv, data.get("path", ""), data.get("name", ""))
+            return {"ok": True, "id": node.id, "address": node.address, "pages": info["pages"],
+                    "files": info["files"], "new_identity": not info["identity"]}
         if p == "/api/nodes/new":
             node = srv.new_node(data.get("name", ""))
             return {"ok": True, "id": node.id}

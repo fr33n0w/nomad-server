@@ -290,6 +290,52 @@ dialog input[type=text] { width: 100%; }
 .paths { display: grid; gap: 8px; font-size: 13px; }
 .path-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
 .path-row .mono { font-size: 12px; color: var(--muted); word-break: break-all; }
+dialog.imp { width: min(800px, 94vw); }
+.imp-opts { display: grid; gap: 10px; margin-top: 12px; }
+.imp-opt { display: grid; gap: 4px; text-align: left; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font: inherit; cursor: pointer; }
+.imp-opt:hover { border-color: var(--cyan); }
+.imp-list { display: grid; gap: 8px; max-height: 46vh; overflow: auto; }
+.imp-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+.imp-item:has(input:checked) { border-color: var(--cyan); }
+.imp-item.off { opacity: .6; cursor: default; }
+.imp-path { color: var(--muted); overflow-wrap: anywhere; margin: 2px 0; }
+.imp-bar { display: flex; gap: 6px; align-items: center; }
+.imp-bar input { flex: 1; min-width: 0; }
+.imp-lead { margin: 0 0 8px; }
+.imp-note { margin: 6px 0 12px; }
+.imp-ex { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.imp-tool { display: flex; align-items: center; gap: 8px; padding: 7px 8px; min-width: 0; }
+.imp-tool:first-child { border-bottom: 1px solid var(--line); }
+.imp-tool:last-child { border-top: 1px solid var(--line); }
+.imp-tool input { flex: 1; min-width: 0; }
+.imp-tool .imp-crumbs { flex: 1; }
+.imp-pickbtn { flex: none; }
+.imp-cols { display: grid; grid-template-columns: 130px minmax(0, 1fr); min-height: 0; }
+.imp-places { display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; background: var(--panel-2); border-right: 1px solid var(--line); }
+.imp-place { text-align: left; background: none; border: 0; border-radius: 6px; padding: 5px 8px; color: var(--text); font: 13px var(--sans); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-place:hover, .imp-place.cur { background: var(--bg); color: var(--cyan); }
+.imp-crumbs { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; font: 12.5px var(--mono); }
+.imp-crumb { background: none; border: 0; border-radius: 5px; padding: 2px 5px; color: var(--muted); font: inherit; cursor: pointer; }
+.imp-crumb:hover { color: var(--cyan); background: var(--panel-2); }
+.imp-crumb.cur { color: var(--text); font-weight: 600; cursor: default; }
+.imp-sep { color: var(--muted); }
+.imp-dirs { display: grid; align-content: start; height: min(34vh, 300px); overflow: auto; padding: 4px; min-width: 0; }
+.imp-dir { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 4px 8px; color: var(--text); font: 13px var(--sans); cursor: pointer; }
+.imp-dir:hover { background: var(--panel-2); }
+.imp-dir .fi { width: 17px; height: 17px; flex: none; color: var(--amber); }
+.imp-dir .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-dir.node .fi { color: var(--cyan); }
+.imp-dir.node .nm { font-weight: 600; }
+.imp-dir .flag { margin-left: auto; color: var(--cyan); }
+.imp-none { padding: 6px 8px; }
+@media (max-width: 560px) {
+  .imp-cols { grid-template-columns: 1fr; }
+  .imp-tool:first-child { flex-wrap: wrap; }
+  .imp-places { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
+}
+.imp-found { font-size: 13px; color: var(--muted); padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.imp-found.ok { color: var(--text); border: 1px solid var(--cyan); }
+.imp-pick { margin-top: 12px; }
 dialog.pm { width: min(1280px, 96vw); height: min(860px, 92vh); max-width: none; max-height: none; padding: 0; display: none; }
 dialog.pm[open] { display: flex; flex-direction: column; }
 .pm-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }

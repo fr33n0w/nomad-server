@@ -213,7 +213,7 @@ If the web UI port is already in use (for example another nomad-server), the ser
 | | |
 |---|---|
 | ![Stats](docs/stats.png) | ![Logs](docs/logs.png) |
-| **Stats**: requests and traffic per node over 1 hour (per minute), 24 hours, 7, 14, 30 or 90 days, top pages and files, identified visitors | **Logs**: live, one color per node, filters for pages, visitors, files and warnings |
+| **Stats**: requests and traffic per node, or all nodes added up, over 1 hour (per minute), 24 hours, 7, 14, 30 or 90 days, top pages and files, identified visitors | **Logs**: live, one color per node, filters for pages, visitors, files and warnings |
 
 - **Overview**: nodes with a requests chart, Reticulum interfaces, the clients connected now
 - **Settings**: server, web UI and node settings, identity, backup and restore, blocklist, removed nodes, shortcuts
@@ -248,7 +248,7 @@ Pages are read at each request, so a changed page is served at once. New and del
 | `footer.visits` | yes | a visits line at the bottom of pages without their own counter |
 | `footer.watermark` | yes | a "served by nomad-server" line |
 
-**Backup node** saves a zip with identity, settings, pages, files and counters; **Restore a node from backup** brings it back with the same address. **Import identity** gives a node the address of an existing one. Two nodes of a server can never share an identity.
+**Backup node** saves a zip with identity, settings, pages, files and counters; **Restore from nS backup** brings it back with the same address. **Import existing node** brings in a node of NomadNet or another server (see [Moving an existing node here](#moving-an-existing-node-here)). **Import identity** gives a node the address of an existing one. Two nodes of a server can never share an identity.
 
 ## Counters
 
@@ -300,7 +300,16 @@ A node's address comes from its `identity` file (the private key). Give that fil
 
 NomadNet may use `~/.config/nomadnetwork/` instead of `~/.nomadnetwork/`; `pages_path` and `files_path` in the `[node]` section of its `config` can point elsewhere. On Windows `~` is `C:\Users\<you>`.
 
-**Steps**
+**With Import existing node**
+
+Overview > **Import existing node** does steps 1-4 below for you:
+
+- **Autoscan import** searches the computer running the server for folders with an `identity` and `pages/` with `.mu` pages (NomadNet, `rns_server_page.py` and similar) and lists them with name, path, pages and address.
+- **Manual import** lets you choose the old folder yourself: **Browse folders** opens the system's folder window (on the server's own computer), or move through the folders in the window (for NomadNet, `.nomadnetwork` in your home folder). A folder without an identity is imported with a new address.
+
+The name comes from the old config (NomadNet `node_name`, `display_name` of `config.cfg.owr` or `config.cfg`), and you can change it. Identity, pages, files and `data/visits.json` are copied into a new node; the old folder is not touched. Without `.mu` pages there is nothing to import and no node is made. The new node stays stopped: do steps 5 and 6. Like editing pages, it works from the server's own computer or with a password set.
+
+**By hand**
 
 1. **Create new node**, with the name the old node had. It starts stopped, so its new identity never goes on the network.
 2. Settings > Node > **Import identity**, choose the old `identity` file. The address shown under the node changes to the old one: check it is the one you know.
@@ -349,7 +358,7 @@ Peers that identify are listed with their LXMF address and, when they announced 
 
 ![Honeypot](docs/honeypot.png)
 
-Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze that never runs out and is never refused (fake pages, fake file downloads or both), so a crawler walks it until it disconnects, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Both lists have **Export as text**: the peer connections as shown (filter and order), the known crawlers with every honeypot they visited and what they took from it (requests, bytes sent, maze answers). **Clear list** empties the known crawlers in the web UI only: nothing is deleted, they stay caught, and one that comes back shows again with all its data. A peer caught by several honeypots is one row that names them all, with the maze pages and files it took listed by name. The stats add up all the honeypots, or show one, like the Stats tab: requests, traffic and a chart, with the maze counted apart from the bait pages. **Slow maze** (honeypot settings): every fake page or file is answered late, so a crawler's page budget costs it more time. *Adaptive* answers just before the visitor's request times out (worked out from the link's round trip, about 10 s with Reticulum's default timeout); *fixed* waits the seconds you choose. Longer than the client's timeout and the crawler gets nothing to follow. The time held shows in the peer list. **Release from maze** takes a link that did not identify out of the maze: it gets the real pages again until it opens a trap again; a new link starts fresh. Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
+Hidden behind advanced mode: click the logo in **About** five times. A honeypot is a node full of believable bait pages with trap links that people never see and crawlers follow. Whoever opens a trap, hops to a new link for every page, or reads too many pages too fast is caught: by its LXMF address if it identified, otherwise for the rest of its link. Caught peers can get a tarpit or a maze that never runs out and is never refused (fake pages, fake file downloads or both), so a crawler walks it until it disconnects, and keep getting it when they come back. They go into the blocklist only if you turn on *Put caught visitors in the blocklist*. The Honeypot tab keeps the connection history, the known crawlers and whether they come back, even on new honeypots. Both lists have **Export as text**: the peer connections as shown (filter and order), the known crawlers with every honeypot they visited and what they took from it (requests, bytes sent, maze answers). **Clear list** empties the known crawlers in the web UI only: nothing is deleted, they stay caught, and one that comes back shows again with all its data. A peer caught by several honeypots is one row that names them all, with the maze pages and files it took listed by name. The stats add up all the honeypots, or show one, like the Stats tab: requests, traffic and a chart, with the maze counted apart from the bait pages. **Slow maze** (honeypot settings): every fake page or file is answered late, so a crawler's page budget costs it more time. *Adaptive* answers just before the visitor's request times out (worked out from the link's round trip, about 10 s with Reticulum's default timeout); *fixed* waits the seconds you choose. Longer than the client's timeout and the crawler gets nothing to follow. The time held shows in the peer list. **Release from maze** takes a link that did not identify out of the maze: it gets the real pages again until it opens a trap again; a new link starts fresh. **Addresses** (honeypot settings, 1 to 3): the same pages on more addresses, announced as "<name> N1", "N2", "N3" two seconds apart; crawlers keep a page budget per node, so each address catches more. An identity that connects to every address within *multi_seconds* (600 by default) is caught like a trap: people pick one node from a list, crawlers take them all. New honeypots answer with the maze and keep caught peers out of the blocklist. Live clients and the peer list show how many hops away a link came from, and its interface when Reticulum tells it (with rnsd, for identified peers: the interface rnsd uses to reach them). Turning advanced mode off stops every honeypot, which stays stopped until started again, and hides them from all tabs; the blocklist stays as it is.
 
 ## Docker
 
@@ -363,6 +372,22 @@ The UI is on port 8484, everything else in `nomad-data/`: settings, nodes, ident
 ## Resources
 
 On a Debian server with three busy nodes and a plugin, the process uses about 95 MB: about 36 MB are Python and Reticulum, the rest the nodes, counters and the plugin's data. An empty server uses about 47 MB.
+
+## What's new in 0.1.2
+
+Every version: [CHANGELOG.md](CHANGELOG.md).
+
+- Import existing node: autoscan or folder explorer.
+- Import from a remote browser: folder upload.
+- Restore button renamed Restore from nS backup.
+- Stopped nodes show their pages and files.
+- Nodes announced again when rnsd comes back.
+- Honeypots: up to 3 addresses, N1 N2 N3.
+- Same peer on every address: caught.
+- New honeypots answer with the maze.
+- Hops and interface of incoming links.
+- Stats: All nodes added up.
+- Reload button in the header.
 
 ## What's new in 0.1.1
 
@@ -385,7 +410,8 @@ On a Debian server with three busy nodes and a plugin, the process uses about 95
 
 ## Roadmap
 
-- Honeypots with more bait addresses each: crawlers keep a page budget per address.
+- Integration with rBrowser2: host nodes from the browser.
+- Experimental: a fingerprint of links that do not identify (hops, interface, link settings, timing) to group the ones that probably come from the same client. An estimate, never a proof: shown, not used to block.
 
 ## Credits
 

@@ -56,6 +56,8 @@ NODE_DEFAULTS = {
         "long_seconds": "3600",
         "slow_maze": "off",
         "slow_seconds": "8",
+        "addresses": "1",
+        "multi_seconds": "600",
     },
     "footer": {
         "visits": "yes",
@@ -128,7 +130,7 @@ reason = Crawler
 # yes = identified visitors caught here also go into the blocklist;
 # no = they stay caught on the honeypots only (listed in the known crawlers)
 to_blocklist = no
-# yes = also block crawler-like visitors:
+# yes = also catch crawler-like visitors (same answer as the traps):
 #  - one link opening crawler_pages different pages within crawler_seconds (fast crawlers)
 #  - one link opening long_pages different pages within long_seconds (slow, on one link)
 #  - one identity opening hop_links links with one or two pages each within hop_seconds
@@ -145,6 +147,11 @@ long_seconds = 3600
 # times out, worked out from the link's round trip time)
 slow_maze = off
 slow_seconds = 8
+# 1-3 addresses serving the same pages, announced as "<name> N1", "N2", "N3" two seconds apart
+# (identity2, identity3 next to identity); the same LXMF on all of them within
+# multi_seconds is caught like a trap (0 = off)
+addresses = 1
+multi_seconds = 600
 
 [footer]
 # Lines added at the bottom of .mu pages (not to partials loaded inside other pages)

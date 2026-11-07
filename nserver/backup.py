@@ -55,7 +55,7 @@ def make_zip(node):
         z.writestr(node.id + "/BACKUP.txt",
                    "nomad-server backup of node %s (%s), address %s, made %s.\n"
                    "The identity file is the node's private key: keep this zip private.\n"
-                   "Restore it with New node > Restore from backup.\n"
+                   "Restore it with Overview > Restore from nS backup.\n"
                    % (node.id, node.name, node.address, time.strftime("%Y-%m-%d %H:%M")))
     return buf.getvalue()
 

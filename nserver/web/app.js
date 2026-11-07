@@ -75,7 +75,7 @@ function themeLabel() {
 }
 themeLabel();
 
-const addrRow = (a) => `<div class="addr-row"><span class="addr-label">Server address</span><button class="addr" data-copy="${esc(a)}" title="Copy address">${esc(a)}${COPY_ICON}</button></div>`;
+const addrRow = (a, label = "Server address") => `<div class="addr-row"><span class="addr-label">${label}</span><button class="addr" data-copy="${esc(a)}" title="Copy address">${esc(a)}${COPY_ICON}</button></div>`;
 document.addEventListener("click", (e) => {
   const copy = e.target.closest("[data-copy]");
   if (copy) navigator.clipboard?.writeText(copy.dataset.copy).then(() => toast("Address copied"), () => toast("Copy not allowed here: select it by hand"));
@@ -126,6 +126,12 @@ $("#login-form").addEventListener("submit", async (e) => {
   } catch (err) {
     $("#login-err").textContent = err.message === "login" ? "" : err.message === "wrong password" ? "Wrong password." : err.message;
   }
+});
+
+// reload from the button: no splash again
+$("#reload").addEventListener("click", () => {
+  try { sessionStorage.setItem("ns-reload", "1"); } catch (e) { /* private mode */ }
+  location.reload();
 });
 
 $("#logout").addEventListener("click", async () => {
@@ -238,11 +244,12 @@ function renderOverview() {
   const rows = [];
   nodes.forEach((n) => n.online.forEach((v) => rows.push({ n, v })));
   $("#online").innerHTML = rows.length
-    ? `<table class="online"><tr><th>Node</th><th>Link</th><th>Visitor</th><th class="n">Connected</th><th class="n">Requests</th><th class="n">In</th><th class="n">Out</th></tr>${rows.map(({ n, v }) => `<tr>
+    ? `<table class="online"><tr><th>Node</th><th>Link</th><th>Visitor</th><th>Arrived</th><th class="n">Connected</th><th class="n">Requests</th><th class="n">In</th><th class="n">Out</th></tr>${rows.map(({ n, v }) => `<tr>
       <td><span class="nm-cell"${hstyle(hue(n.address))}><span class="ndot"></span>${esc(n.name)}</span></td>
       <td class="who">${esc(v.link)}</td>
       <td>${v.who ? `<span class="who">${esc(v.who)}</span>${v.name ? ` <span class="muted">${esc(v.name)}</span>` : ""} ${blockBtn(v.who, v.name, n.id)}`
         : `<span class="muted">Not identified</span> ${isMaze(v.blocked) ? `<span class="flag">in the maze</span> ${releaseBtn(v.link, n.id)}` : v.blocked ? `<span class="flag bad">link blocked · ${esc(v.blocked)}</span> <button class="btn-unblock" data-unblocklink="${esc(v.link)}" data-node="${esc(n.id)}">Unblock</button>` : `<button class="btn-block" data-blocklink="${esc(v.link)}" data-node="${esc(n.id)}" title="Block this connection until it disconnects">Block link</button>`}`}${v.crawler ? ` <span class="flag">crawler?</span>` : ""}</td>
+      <td class="small">${v.addr ? `on N${v.addr} · ` : ""}${viaText(v)}</td>
       <td class="n">${stamp(v.since)}<div class="muted small">${span(o.now - v.since)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${size(v.rx)}</td><td class="n">${size(v.tx)}</td></tr>`).join("")}</table>`
     : `<div class="empty">Nobody connected.</div>`;
 }
@@ -264,7 +271,7 @@ function nodeCard(n) {
       ${n.plugin ? `<span class="tag">plugin</span>` : ""}
       ${isHP(n) ? `<span class="tag honey">honeypot · ${num(n.caught)} caught</span>` : ""}
     </div>
-    ${addrRow(n.address)}
+    ${n.addresses && n.addresses.length ? [n.address, ...n.addresses].map((a, k) => a ? addrRow(a, `Address N${k + 1}`) : `<div class="addr-row"><span class="addr-label">Address N${k + 1}</span><span class="muted small">made at the first Start</span></div>`).join("") : addrRow(n.address)}
     ${n.error ? `<div class="node-err">${esc(n.error)}</div>` : ""}
     ${n.state === "stopped" ? `<div class="node-hint">Stopped: nobody can reach it. Add or edit its pages with <b>Edit pages</b>, then press <b>Start</b> to put it online.</div>` : ""}
     <div class="signal">
@@ -355,8 +362,11 @@ function fillNodeSelects() {
     const list = sel === "#log-node" ? nodes.filter((n) => advanced() || !isHP(n))
       : sel === "#hp-node" ? nodes.filter((n) => advanced() && isHP(n)) : nodes.filter((n) => !isHP(n));
     const opts = list.map((n) => `<option value="${esc(n.id)}">${esc(n.name)}</option>`).join("");
-    el.innerHTML = (sel === "#log-node" ? `<option value="">All nodes</option>` : "") + opts;
+    el.innerHTML = (sel === "#log-node" ? `<option value="">All nodes</option>` : "")
+      + (sel === "#stats-node" && list.length > 1 ? `<option value="all">All nodes (${list.length})</option>` : "") + opts;
     if ([...el.options].some((o) => o.value === keep)) el.value = keep;
+    // Stats opens on one node; All nodes only when chosen
+    else if (sel === "#stats-node" && list.length) el.value = list[0].id;
   }
   pickDots();
 }
@@ -394,7 +404,7 @@ async function loadStats() {
   }
   let d;
   try {
-    d = await api(`/api/stats?node=${encodeURIComponent(id)}`);
+    d = id === "all" ? await allNodesStats() : await api(`/api/stats?node=${encodeURIComponent(id)}`);
   } catch (e) {
     return;
   }
@@ -411,8 +421,35 @@ async function loadStats() {
   $("#top-refresh").innerHTML = topTable(st.paths.refresh, st.bytes?.refresh, "Page", "Refreshes");
   const vis = Object.entries(st.visitors || {}).sort((a, b) => b[1].requests - a[1].requests).slice(0, 25);
   $("#top-visitors").innerHTML = vis.length
-    ? `<table><tr><th>LXMF address</th><th class="n">Requests</th><th class="n">Sent</th><th class="n">Last seen</th></tr>${vis.map(([h, v]) => `<tr><td><div class="who-cell">${esc(h)}</div>${v.name ? `<div class="muted small">${esc(v.name)}</div>` : ""}<div class="row-acts">${blockBtn(h, v.name, id, v.identity)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${v.bytes ? size(v.bytes) : "-"}</td><td class="n">${whenCell(v.last)}</td></tr>`).join("")}</table>`
+    ? `<table><tr><th>LXMF address</th><th class="n">Requests</th><th class="n">Sent</th><th class="n">Last seen</th></tr>${vis.map(([h, v]) => `<tr><td><div class="who-cell">${esc(h)}</div>${v.name ? `<div class="muted small">${esc(v.name)}</div>` : ""}<div class="row-acts">${blockBtn(h, v.name, id === "all" ? "" : id, v.identity)}</div></td><td class="n">${num(v.requests)}</td><td class="n">${v.bytes ? size(v.bytes) : "-"}</td><td class="n">${whenCell(v.last)}</td></tr>`).join("")}</table>`
     : `<div class="empty">Nobody has identified yet. Visitors who identify in NomadNet or rBrowser show up here with their LXMF address.</div>`;
+}
+
+// every normal node added up; pages and files keep the node name in front
+async function allNodesStats() {
+  const st = { totals: {}, days: {}, hours: {}, minutes: {}, paths: {}, bytes: {}, visitors: {}, since: 0 }, s = {};
+  for (const n of (overview?.nodes || []).filter((x) => !isHP(x))) {
+    const d = await api(`/api/stats?node=${encodeURIComponent(n.id)}`);
+    const o = d.stats;
+    for (const k of ["totals", "days", "hours", "minutes"]) addUp(st[k], o[k]);
+    for (const k of ["paths", "bytes"]) {
+      for (const [kind, map] of Object.entries(o[k] || {})) {
+        const into = st[k][kind] ||= {};
+        for (const [p, v] of Object.entries(map || {})) into[`${n.name} · ${p}`] = v;
+      }
+    }
+    for (const [h, v] of Object.entries(o.visitors || {})) {
+      const t = st.visitors[h] ||= { requests: 0, bytes: 0, last: 0, name: "", identity: "" };
+      t.requests += v.requests || 0;
+      t.bytes += v.bytes || 0;
+      t.last = Math.max(t.last, v.last || 0);
+      t.name ||= v.name || "";
+      t.identity ||= v.identity || "";
+    }
+    if (o.since && (!st.since || o.since < st.since)) st.since = o.since;
+    addUp(s, d.node.stats);
+  }
+  return { stats: st, node: { stats: s } };
 }
 
 // Requests and Traffic counters of one node, as in Stats (also under each honeypot)
@@ -642,13 +679,15 @@ const HP_FIELDS = [
   ["node", "enabled", "bool", "Enabled", "Start it with the server"],
   ["node", "announce_at_start", "bool", "Announce at start", ""],
   ["node", "announce_interval", "number", "Announce every", "Minutes, 0 = only at start"],
+  ["honeypot", "addresses", "select:1,2,3", "Addresses", "More addresses serving the same pages, announced as \"<name> N1\", \"N2\", \"N3\" two seconds apart: crawlers have a budget per node, so each address catches more. Applies when the node restarts"],
+  ["honeypot", "multi_seconds", "number", "Same peer on all addresses: within seconds", "An identity that connects to every address within this time is caught like a trap: people pick one node from a list, crawlers take them all. 0 = off"],
   ["honeypot", "traps", "text", "Trap pages", "Comma separated, * at the end = everything below (e.g. /page/trap/*). Opening one gets the visitor caught"],
   ["honeypot", "mode", "select:page,silent,tarpit,maze=maze pages,maze_files=maze files,maze_both=maze both", "Answer caught visitors with", "page: blocked page with the reason; silent: dropped; tarpit: no answers; maze: endless small fake pages, fake file downloads or both, never refused: the crawler keeps busy here instead of on your real nodes"],
   ["honeypot", "slow_maze", "select:off,fixed=fixed delay,adaptive=adaptive delay", "Slow maze", "Maze answers sent late: a crawler's page budget costs it more time. Adaptive: just before the visitor's request times out (worked out from the link's round trip, about 10 s); fixed: the seconds below. Too long and the crawler times out without the page"],
   ["honeypot", "slow_seconds", "number", "Slow maze: fixed delay, seconds", "Used with fixed delay; NomadNet clients wait about 11 s at least"],
   ["honeypot", "reason", "text", "Reason for caught visitors", "Shown with the page mode"],
   ["honeypot", "to_blocklist", "bool", "Put caught visitors in the blocklist", "Off: an identified crawler stays caught on the honeypots only (the maze or tarpit keeps going, it is listed in Known crawlers). On: it also goes into the Blocklist"],
-  ["honeypot", "autoblock", "bool", "Block crawler-like visitors", "Besides the traps: block link hoppers (a new link for every page) and links opening many pages, fast or over an hour"],
+  ["honeypot", "autoblock", "bool", "Also catch crawler-like visitors", "Same answer as the traps, also for link hoppers (a new link for every page) and links opening many pages, fast or over an hour"],
   ["honeypot", "hop_links", "number", "Link hopping: links", "An identity opening this many links with one or two pages each... (people keep one link open while they browse)"],
   ["honeypot", "hop_seconds", "number", "Link hopping: within seconds", "...within this many seconds"],
   ["honeypot", "crawler_pages", "number", "Fast crawler: pages on one link", "Different pages on a single link..."],
@@ -1054,7 +1093,7 @@ $("#server-restart").addEventListener("click", async () => {
 
 $("#honeypot-btn").addEventListener("click", async () => {
   const ok = await ask("Create honeypot node", `<div class="form"><div class="field"><label for="hp-name">Name</label><input id="hp-name" type="text" maxlength="60" value="Mesh Archive"></div></div>
-    <p class="muted small">A bait node: an archive of many linked pages with hidden trap links that people never see and crawlers always follow. Whoever opens a trap, or too many pages too fast, is blocked on every node (tarpit by default). It is created stopped: press Start to put it online.</p>`, "Create honeypot");
+    <p class="muted small">A bait node: an archive of many linked pages with hidden trap links that people never see and crawlers always follow. Whoever opens a trap, or browses like a crawler, is caught and kept in an endless maze of fake pages (maze by default, not added to the blocklist). It is created stopped: press Start to put it online.</p>`, "Create honeypot");
   const name = $("#hp-name")?.value.trim();
   if (!ok || !name) return;
   try {
@@ -1270,6 +1309,10 @@ async function loadHoneypot() {
     const g = groups.get(key) || { ...p, key, links: 0, requests: 0, tries: 0, first: p.since, last: 0, online: false, pages: [], tried: [], trap: [], files: [], caught: "", mode: "",
                                    maze: 0, maze_files: 0, maze_bytes: 0, maze_time: 0, maze_last: 0, maze_wait: 0, maze_got: [], hps: [] };
     if (!g.hps.includes(p.node_name)) g.hps.push(p.node_name);
+    if (p.via && !g.via) Object.assign(g, { via: p.via, via_path: p.via_path });
+    if (p.hops) g.hops = p.hops;
+    g.addrs ||= [];
+    if (p.addr && !g.addrs.includes(p.addr)) g.addrs.push(p.addr);
     for (const x of p.maze_got || []) if (g.maze_got.length < HP_PAGES) g.maze_got.push(x);
     g.links += 1;
     g.requests += p.requests || 0;
@@ -1322,7 +1365,7 @@ async function loadHoneypot() {
     const why = p.caught ? `${p.caught}${p.mode ? " · " + p.mode : ""}` : b ? `${b.reason || "blocked"} · ${blockMode(b, p.node)}` : "";
     const actions = p.who ? (b ? `${!b.scope || b.scope === "all" ? "" : widenBtn(p.who)} <button class="btn-unblock" data-unblock="${esc(p.who)}">Unblock</button> ${bhBtn(p.who, p.identity)}`
       : `<button class="btn-block" data-block="${esc(p.who)}" data-name="${esc(p.name || "")}" data-node="${esc(p.node)}">Block</button> ${bhBtn(p.who, p.identity)}`) : linkBtns(p);
-    const meta = [p.identity ? `identity ${esc(p.identity)}` : "", many ? `on ${esc(p.hps.join(", "))}` : "",
+    const meta = [p.addrs && p.addrs.length ? `on ${p.addrs.map((a) => "N" + a).join(", ")}` : "", viaText(p), p.identity ? `identity ${esc(p.identity)}` : "", many ? `on ${esc(p.hps.join(", "))}` : "",
                   b && b.scope && b.scope !== "all" ? `blocked on ${esc(scopeText(b.scope))}` : ""].filter(Boolean).join(" · ");
     return `<div class="hp-row" data-k="${esc(p.key)}">
       <div class="hp-state"><span class="badge ${p.state}">${p.state}</span>
@@ -1393,8 +1436,15 @@ $("#hp-save").addEventListener("click", async () => {
   const id = $("#hp-node").value;
   if (!id) return;
   try {
-    await api(`/api/node/${encodeURIComponent(id)}/settings`, formValues(HP_FIELDS, "hp"));
+    const vals = formValues(HP_FIELDS, "hp");
+    await api(`/api/node/${encodeURIComponent(id)}/settings`, vals);
     $("#hp-msg").textContent = "Saved: traps and blocking apply at once.";
+    const node = (overview?.nodes || []).find((n) => n.id === id);
+    if (vals.honeypot?.addresses && node?.state === "running"
+        && await ask("Restart honeypot", `<p>The number of addresses changes when <b>${esc(node.name)}</b> restarts: visitors connected now are disconnected.</p>`, "Restart now")) {
+      await api(`/api/node/${encodeURIComponent(id)}/restart`, {});
+      $("#hp-msg").textContent = "Saved and restarted.";
+    }
     renderHpForm.shown = null;
     await loadOverview();
     loadHoneypot();
@@ -1593,13 +1643,232 @@ $("#restore-file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   e.target.value = "";
   if (!f) return;
-  if (!(await ask("Restore from backup", `<p>A new node is created from <b>${esc(f.name)}</b>, with the identity, address, pages and counters in the backup. It is refused if another node already uses that identity.</p>`, "Restore node"))) return;
+  if (!(await ask("Restore from nS backup", `<p>A new node is created from <b>${esc(f.name)}</b>, a backup made by nomad-server (Backup node), with the identity, address, pages and counters in it. It is refused if another node already uses that identity.</p>`, "Restore node"))) return;
   try {
     const r = await postFile("/api/nodes/restore", f);
     toast(`Node ${r.id} restored, address ${r.address}`);
     loadOverview();
   } catch (err) {
     toast("Not restored: " + err.message);
+  }
+});
+
+// where a link came from: hops always, the interface when Reticulum tells it
+function viaText(v) {
+  if (!v.hops && !v.via) return "";
+  const hops = v.hops ? `${v.hops} ${v.hops === 1 ? "hop" : "hops"}` : "";
+  const via = v.via ? `<span class="mono" title="${v.via_path ? "Interface rnsd uses to reach this peer: where it came from" : "Interface the link came in on"}">${esc(v.via)}</span>` : "";
+  return [hops, via].filter(Boolean).join(" via ");
+}
+
+// ---- import a node from another server ----
+
+const imp = { step: "choose", items: [], pick: null, dir: null, busy: false };
+const FOLDER_ICON = '<svg class="fi" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 5.5a1 1 0 0 1 1-1h4l1.8 2h7.2a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1z"/></svg>';
+const KIND = { nomadnet: "NomadNet", "nomad-server": "nomad-server", server: "page server" };
+
+function impFound(i) {
+  const what = `${i.mu} page${i.mu === 1 ? "" : "s"} (.mu)${i.pages > i.mu ? `, ${i.pages - i.mu} other in pages/` : ""}, ${i.files} file${i.files === 1 ? "" : "s"}, ${size(i.size)}`;
+  const addr = i.used_by ? `<span class="flag bad">already here as node ${esc(i.used_by)}</span>`
+    : i.address ? `address <span class="mono">${esc(i.address)}</span>`
+    : `<span class="flag">no identity file: it gets a new address</span>`;
+  return `<b>${esc(i.name)}</b> <span class="muted small">${KIND[i.kind] || i.kind}${i.index ? "" : " · no index.mu"}</span>
+    <div class="mono small imp-path">${esc(i.root)}</div><div class="small">${what}</div><div class="small">${addr}</div>`;
+}
+
+function impPickHtml() {
+  const i = imp.pick;
+  if (!i) return "";
+  return `<div class="form imp-pick"><div class="field"><label for="imp-name">Name of the new node</label>
+    <input id="imp-name" type="text" maxlength="60" value="${esc(i.name)}"></div></div>
+    <p class="muted small">Identity, pages, files${i.visits ? " and old counters" : ""} are copied into a new node, which stays <b>stopped</b>. The old folder is not touched. Stop the old server before pressing Start: one address must never be served from two places.</p>`;
+}
+
+function impRender() {
+  const b = $("#imp-body");
+  $("#imp-back").classList.toggle("hidden", imp.step === "choose");
+  const can = imp.pick && imp.pick.mu && !imp.pick.used_by && !imp.busy;
+  $("#imp-go").classList.toggle("hidden", imp.step === "choose");
+  $("#imp-go").disabled = !can;
+  if (imp.step === "choose") {
+    b.innerHTML = `<p class="muted small">Bring here a node served by NomadNet or another server: its identity (so its address), pages and files.</p>
+      <div class="imp-opts">
+        <button class="imp-opt" data-imp="scan"><b>Autoscan import</b><span class="muted small">Searches this computer for old nodes: folders with an identity and pages/ with .mu pages (NomadNet, rns_server_page and similar).</span></button>
+        <button class="imp-opt" data-imp="manual"><b>Manual import</b><span class="muted small">Choose the folder of the old server yourself.</span></button>
+      </div>`;
+  } else if (imp.step === "scan") {
+    if (imp.busy) {
+      b.innerHTML = `<p class="muted">Scanning this computer… (up to 30 seconds)</p>`;
+      return;
+    }
+    const res = imp.scan || { items: [] };
+    const list = res.items.map((i, k) => `<label class="imp-item${i.used_by ? " off" : ""}"><input type="radio" name="imp-r" value="${k}"${imp.pick === i ? " checked" : ""}${i.used_by ? " disabled" : ""}><span>${impFound(i)}</span></label>`).join("");
+    b.innerHTML = `<p class="muted small">${res.items.length ? `${res.items.length} node${res.items.length === 1 ? "" : "s"} found` : "No old nodes found"} in ${res.seconds} s, ${res.dirs} folders${res.complete ? "" : ". The scan stopped at the time limit: if yours is missing, use Manual import"}.</p>
+      <div class="imp-list">${list}</div>${impPickHtml()}`;
+  } else {
+    const d = imp.dir;
+    if (!d) {
+      b.innerHTML = `<p class="muted">Loading…</p>`;
+      return;
+    }
+    const f = d.found;
+    const state = !d.path ? "" : f && f.mu ? `<div class="imp-found ok">${impFound(f)}</div>`
+      : f ? `<div class="imp-found">Nothing to import here: pages/ has no .mu pages.</div>`
+      : `<div class="imp-found">No node here: open the folder that holds <span class="mono">pages/</span> (and usually <span class="mono">identity</span>). For NomadNet it is <span class="mono">.nomadnetwork</span> in your home folder.</div>`;
+    const busy = imp.picking || imp.sending;
+    const host = `<b>${esc(d.host || "the server")}</b>`;
+    const where = d.path ? `, starting from <span class="mono">${esc(d.path)}</span>` : "";
+    const note = imp.sending ? esc(imp.sending)
+      : imp.picking ? "Choose the folder in the window that opened…"
+      : d.can_pick ? `<b>Browse folders on this computer</b> opens the folder window of this computer (${host}, where nomad-server runs)${where}.`
+      : `<b>Browse folders on your device</b> opens the folder window of the device you are using now, not of ${host}. The folder you choose is sent to the server: only identity, settings, pages and files.`;
+    const crumbs = (d.crumbs || []).map((c, k, a) => k === a.length - 1 ? `<span class="imp-crumb cur">${esc(c.name)}</span>`
+      : `<button class="imp-crumb" data-dir="${esc(c.path)}" title="${esc(c.path)}">${esc(c.name)}</button>`).join(`<span class="imp-sep">›</span>`);
+    const places = (d.places || []).map((p) => `<button class="imp-place${p.path === d.path ? " cur" : ""}" data-dir="${esc(p.path)}" title="${esc(p.path)}">${esc(p.name)}</button>`).join("");
+    const rows = d.dirs.map((x) => `<button class="imp-dir${x.node ? " node" : ""}" data-dir="${esc(x.path)}" title="${x.node ? "Holds a node: open it to see what is inside" : esc(x.path)}">${FOLDER_ICON}<span class="nm">${esc(x.name)}</span>${x.node ? `<span class="flag">node</span>` : ""}</button>`).join("");
+    b.innerHTML = `<p class="muted small imp-lead">Open the folder of the old node: the folders below are on the server ${host}.</p>
+      <div class="imp-ex">
+        <div class="imp-tool">
+          <button class="icon-btn" data-imp="up" title="Up to the parent folder" aria-label="Up"${d.parent == null ? " disabled" : ""}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 15V5M5 10l5-5 5 5"/></svg></button>
+          <div class="imp-crumbs">${crumbs || `<span class="imp-crumb cur">Drives</span>`}</div>
+          <button class="btn small imp-pickbtn" data-imp="${d.can_pick ? "pick" : "upload"}" title="${d.can_pick ? "Opens the folder window of this computer" : "Opens the folder window of the device you are using, not of the server"}"${busy ? " disabled" : ""}>${d.can_pick ? "Browse folders on this computer" : "Browse folders on your device"}</button>
+        </div>
+        <div class="imp-cols">
+          <nav class="imp-places" aria-label="Places">${places}</nav>
+          <div class="imp-dirs">${rows || `<span class="muted small imp-none">No subfolders</span>`}</div>
+        </div>
+        <div class="imp-tool"><input id="imp-path" type="text" class="mono" value="${esc(d.path)}" aria-label="Go to folder" placeholder="Type a folder path"><button class="btn small" data-imp="go" title="Go to the folder typed here">Go</button></div>
+      </div>
+      <p class="muted small imp-note">${note}</p>
+      ${state}${f && f.mu ? impPickHtml() : ""}`;
+    const cr = $(".imp-crumbs", b);
+    if (cr) cr.scrollLeft = cr.scrollWidth;
+  }
+}
+
+async function impBrowse(path) {
+  try {
+    imp.dir = await api("/api/import/browse?path=" + encodeURIComponent(path));
+    imp.pick = imp.dir.found && imp.dir.found.mu ? imp.dir.found : null;
+  } catch (err) {
+    toast("Error: " + err.message);
+  }
+  impRender();
+}
+
+$("#import-btn").addEventListener("click", () => {
+  Object.assign(imp, { step: "choose", pick: null, dir: null, scan: null, busy: false });
+  impRender();
+  $("#imp").showModal();
+});
+$("#imp-cancel").addEventListener("click", () => $("#imp").close());
+$("#imp-back").addEventListener("click", () => {
+  Object.assign(imp, { step: "choose", pick: null });
+  impRender();
+});
+$("#imp-body").addEventListener("change", (e) => {
+  if (e.target.name !== "imp-r") return;
+  imp.pick = imp.scan.items[+e.target.value];
+  impRender();
+  $("#imp-name")?.focus();
+});
+$("#imp-body").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id === "imp-path") {
+    e.preventDefault();
+    impBrowse(e.target.value.trim());
+  }
+});
+$("#imp-body").addEventListener("click", async (e) => {
+  const dir = e.target.closest("[data-dir]");
+  if (dir) return impBrowse(dir.dataset.dir);
+  const a = e.target.closest("[data-imp]")?.dataset.imp;
+  if (a === "scan") {
+    Object.assign(imp, { step: "scan", busy: true, pick: null });
+    impRender();
+    try {
+      imp.scan = await api("/api/import/scan");
+    } catch (err) {
+      imp.scan = { items: [], seconds: 0, dirs: 0, complete: true };
+      toast("Error: " + err.message);
+    }
+    imp.busy = false;
+    if (imp.step === "scan") impRender();
+  } else if (a === "manual") {
+    Object.assign(imp, { step: "manual", pick: null, dir: null });
+    impRender();
+    impBrowse("");
+  } else if (a === "upload") {
+    $("#imp-folder").click();
+  } else if (a === "pick") {
+    imp.picking = true;
+    impRender();
+    try {
+      const r = await api("/api/import/pick", { start: imp.dir?.path || "" });
+      imp.picking = false;
+      if (r.path) return impBrowse(r.path);
+    } catch (err) {
+      toast("Error: " + err.message);
+    }
+    imp.picking = false;
+    if ($("#imp").open) impRender();
+  } else if (a === "up") {
+    impBrowse(imp.dir.parent);
+  } else if (a === "go") {
+    impBrowse($("#imp-path").value.trim());
+  }
+});
+// only what an import uses: never NomadNet's messages, caches and the rest
+const IMP_CFG = ["config", "config.cfg", "config.cfg.owr", "node.cfg", "config.ini", "server.cfg", "settings.cfg"];
+function impWanted(rel) {
+  const p = rel.split("/").slice(1);
+  if (p.includes("__pycache__")) return false;
+  if (p.length === 1 && IMP_CFG.includes(p[0])) return true;
+  const s = p[0] === "storage" ? p.slice(1) : p;
+  return (s.length === 1 && (s[0] === "identity" || s[0] === "visits.json"))
+    || (s.length > 1 && (s[0] === "pages" || s[0] === "files"))
+    || (s.length === 2 && s[0] === "data" && s[1] === "visits.json");
+}
+
+$("#imp-folder").addEventListener("change", async (e) => {
+  const all = [...e.target.files];
+  e.target.value = "";
+  const list = all.filter((f) => impWanted(f.webkitRelativePath || f.name));
+  if (!list.some((f) => /(^|\/)pages\/.+\.mu$/.test(f.webkitRelativePath.split("/").slice(1).join("/")))) {
+    if (all.length) toast("Nothing to import: no pages/ with .mu pages in that folder");
+    return;
+  }
+  const session = [...crypto.getRandomValues(new Uint8Array(8))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  let folder = "";
+  try {
+    for (let k = 0; k < list.length; k++) {
+      imp.sending = `Sending ${k + 1} of ${list.length} files…`;
+      if (k % 5 === 0) impRender();
+      const r = await postFile(`/api/import/upload?session=${session}&path=${encodeURIComponent(list[k].webkitRelativePath)}`, list[k]);
+      folder = r.folder;
+    }
+  } catch (err) {
+    toast("Not sent: " + err.message);
+  }
+  imp.sending = "";
+  if (folder) impBrowse(folder);
+  else impRender();
+});
+
+$("#imp-go").addEventListener("click", async () => {
+  const i = imp.pick;
+  if (!i) return;
+  imp.busy = true;
+  $("#imp-go").disabled = true;
+  try {
+    const r = await api("/api/nodes/import", { path: i.root, name: $("#imp-name")?.value.trim() || i.name });
+    $("#imp").close();
+    toast(`Node ${r.id} imported, stopped: ${r.pages} pages, ${r.files} files${r.new_identity ? ", new address" : ""}`);
+    loadOverview();
+  } catch (err) {
+    toast("Not imported: " + err.message);
+  } finally {
+    imp.busy = false;
+    if ($("#imp").open) impRender();
   }
 });
 
@@ -1844,7 +2113,9 @@ async function boot() {
   } catch (e) {
     return setTimeout(boot, 3000);
   }
-  hideSplash(s.splash ? 2000 : 0);
+  let again = false;
+  try { again = !!sessionStorage.getItem("ns-reload"); sessionStorage.removeItem("ns-reload"); } catch (e) { /* private mode */ }
+  hideSplash(s.splash && !again ? 2000 : 0);
   if (!s.ok) return showLogin();
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");

@@ -59,8 +59,8 @@ def build(pages_dir, name, items=10, seed=None):
 
 
 # bait files: text of a few sizes and two images, to see what crawlers download
-WARNING = ("Your crawler opened a honeypot page on this node. You have been identified and put on the blocklist. "
-           "The blocklist is shared on the network and between public servers. "
+WARNING = ("Your crawler opened a honeypot page on this node. You have been identified and listed as a crawler. "
+           "The list is shared on the network and between public servers. "
            "You can generate other identities, but you will be caught again.\n")
 TEXT_FILES = [("node-list.txt", 1), ("mesh-config-backup.txt", 8), ("contacts-export.txt", 32), ("full-archive.txt", 100)]
 IMAGES = ["coverage-map.webp", "antenna-setup.webp"]
