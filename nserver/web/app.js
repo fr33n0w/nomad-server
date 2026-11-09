@@ -267,9 +267,12 @@ function renderOverview() {
 const HIST_PAGE = 20;
 let histShown = HIST_PAGE, histKey = "", histBusy = false;
 
+// folded by default: nothing is asked to the server until it is opened
+function histOpen() { return $("#hist-toggle")?.getAttribute("aria-expanded") === "true"; }
+
 async function loadHistory(force) {
   const box = $("#history");
-  if (!box || histBusy) return;
+  if (!box || histBusy || !histOpen()) return;
   // an open detail stays put until it is closed
   if (!force && box.querySelector("details[open]")) return;
   histBusy = true;
@@ -736,7 +739,7 @@ const NODE_FIELDS = [
   ["node", "announce_at_start", "bool", "Announce at start", "Without an announce the node cannot be reached after a restart"],
   ["node", "announce_interval", "number", "Announce every", "Minutes, 0 = only at start"],
   ["node", "rescan_interval", "number", "Rescan pages every", "Minutes, 0 = never (new pages appear after a rescan)"],
-  ["node", "plugin", "text", "Plugin file", "Python file with dynamic pages, in the node folder"],
+  ["node", "plugin", "text", "Plugin file", "Optional Python file with dynamic pages, in the node folder. Empty = plugin.py, only if that file exists", { placeholder: "plugin.py", blank: "plugin.py" }],
   ["node", "require_identify", "bool", "Identify to see content", "Visitors who do not identify get a page asking them to (like NomadNet and rngit)"],
   ["limits", "requests_per_minute", "number", "Requests per minute", "Per visitor, 0 = no limit"],
   ["counter", "show_on_pages", "bool", "Counters on pages", "Fill {{visits}}, {{visits_total}} and {{visits_today}}. Requests are counted either way"],
@@ -780,9 +783,12 @@ const SERVER_FIELDS = [
 ];
 
 function formHtml(fields, values, prefix) {
-  return fields.map(([sec, key, type, label, hint]) => {
+  return fields.map(([sec, key, type, label, hint, opt = {}]) => {
     const id = `${prefix}-${sec}-${key}`;
-    const v = values?.[sec]?.[key] ?? "";
+    let v = values?.[sec]?.[key] ?? "";
+    // the default value is shown as a grey hint, not as something set
+    if (opt.blank !== undefined && String(v).trim() === opt.blank) v = "";
+    const ph = opt.placeholder ? `placeholder="${esc(opt.placeholder)}"` : "";
     const on = /^(yes|true|on|1)$/i.test(v);
     // data-orig: the value drawn here, so a save sends only what was changed in the form
     const orig = `data-orig="${esc(type === "bool" ? (on ? "yes" : "no") : String(v).trim())}"`;
@@ -790,7 +796,7 @@ function formHtml(fields, values, prefix) {
       ? `<select id="${id}" ${orig}>${type.slice(7).split(",").map((o) => { const [val, label] = o.split("="); return `<option value="${esc(val)}" ${val === v ? "selected" : ""}>${esc(label || val)}</option>`; }).join("")}</select>`
       : type === "bool"
       ? `<input id="${id}" type="checkbox" ${orig} ${on ? "checked" : ""}>`
-      : `<input id="${id}" type="${type}" ${orig} value="${esc(v)}" ${type === "number" ? 'min="0"' : ""}>`;
+      : `<input id="${id}" type="${type}" ${orig} ${ph} value="${esc(v)}" ${type === "number" ? 'min="0"' : ""}>`;
     return `<div class="field"><label for="${id}">${label}</label>${input}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
   }).join("");
 }
@@ -806,26 +812,82 @@ function formValues(fields, prefix) {
   return out;
 }
 
-$("#set-node").addEventListener("change", renderNodeForm);
+// true when a drawn form has a field different from what was saved
+function formChanged(fields, prefix) {
+  for (const [sec, key, type] of fields) {
+    const el = $(`#${prefix}-${sec}-${key}`);
+    if (!el) return false;
+    const v = type === "bool" ? (el.checked ? "yes" : "no") : el.value.trim();
+    if (v !== el.dataset.orig) return true;
+  }
+  return false;
+}
+
+// ---- unsaved changes: coloured Save buttons + reminder bottom right ----
+const UNSAVED = [
+  { k: "node", name: "Node settings", tab: "settings", btn: "#node-save", is: () => formChanged(NODE_FIELDS, "nf") },
+  { k: "server", name: "Server settings", tab: "settings", btn: "#server-save", is: () => formChanged(SERVER_FIELDS, "sf") },
+  { k: "pw", name: "Password", tab: "settings", btn: "#pw-save", is: () => !!($("#pw1").value || $("#pw2").value) },
+  { k: "hp", name: "Honeypot settings", tab: "honeypot", btn: "#hp-save", is: () => formChanged(HP_FIELDS, "hp") },
+  { k: "page", name: "Page", btn: "#pm-save", is: () => pm.dirty },
+];
+const isUnsaved = (k) => UNSAVED.find((u) => u.k === k).is();
+
+function updateUnsaved() {
+  const list = UNSAVED.filter((u) => {
+    const on = u.is();
+    $(u.btn).classList.toggle("dirty", on);
+    return on && u.tab;
+  });
+  $("#unsaved").classList.toggle("hidden", !list.length);
+  $("#unsaved-list").innerHTML = list.map((u) => `<button class="btn small" data-unsaved="${u.k}" title="Go to its Save button">${esc(u.name)}</button>`).join("");
+}
+document.addEventListener("input", updateUnsaved);
+document.addEventListener("change", updateUnsaved);
+$("#unsaved-list").addEventListener("click", (e) => {
+  const u = UNSAVED.find((x) => x.k === e.target.closest("[data-unsaved]")?.dataset.unsaved);
+  if (!u) return;
+  setTab(u.tab);
+  $(u.btn).scrollIntoView({ block: "center", behavior: "smooth" });
+  $(u.btn).focus({ preventScroll: true });
+});
+window.addEventListener("beforeunload", (e) => {
+  if (UNSAVED.some((u) => u.is())) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// changing node with unsaved settings asks first, otherwise the edits are lost
+async function switchForm(sel, k, shown, render) {
+  if (shown && isUnsaved(k) && !(await ask("Unsaved changes", "<p>The settings changed here are not saved yet. Discard them?</p>", "Discard", true))) {
+    $(sel).value = shown;
+    pickDots();
+    return;
+  }
+  render();
+}
+$("#set-node").addEventListener("change", () => switchForm("#set-node", "node", renderNodeForm.shown, renderNodeForm));
 
 function renderNodeForm() {
   const n = overview?.nodes.find((x) => x.id === $("#set-node").value);
+  renderNodeForm.shown = n && n.id;
   $("#node-addr").innerHTML = n
     ? `<div class="field"><span class="field-label">Server address</span><button class="addr" data-copy="${esc(n.address)}" title="Copy address">${esc(n.address)}${COPY_ICON}</button></div>`
     : "";
   $("#node-form").innerHTML = n ? formHtml(NODE_FIELDS, n.settings, "nf") : `<div class="empty">No nodes yet.</div>`;
   $("#node-msg").textContent = n ? `Folder: nodes/${n.id}` : "";
+  updateUnsaved();
 }
 
 async function loadSettings() {
   await loadOverview();
-  renderNodeForm();
+  // coming back to the tab keeps what was typed and not saved yet
+  if (!(isUnsaved("node") && renderNodeForm.shown === $("#set-node").value)) renderNodeForm();
   loadBlocked();
   loadTrash();
   loadShortcuts();
   try {
     const s = await api("/api/settings");
-    $("#server-form").innerHTML = formHtml(SERVER_FIELDS, s.server, "sf");
+    if (!isUnsaved("server")) $("#server-form").innerHTML = formHtml(SERVER_FIELDS, s.server, "sf");
+    updateUnsaved();
     $("#pw-msg").textContent = s.has_password ? "A password is set." : "No password: anyone who can open this page can use it.";
     canOpen = !!s.can_open;
     $("#set-open").classList.toggle("hidden", !canOpen);
@@ -1075,11 +1137,23 @@ $("#set-edit").addEventListener("click", () => { if ($("#set-node").value) openP
 async function saveNode(restart) {
   const id = $("#set-node").value;
   if (!id) return;
-  if (restart && !(await ask("Save and restart node", `<p>Node <b>${esc(id)}</b> restarts with the new settings: visitors connected now are disconnected.</p>`, "Save and restart", true))) return;
+  const vals = formValues(NODE_FIELDS, "nf");
+  const node = (overview?.nodes || []).find((n) => n.id === id);
+  const stopping = vals.node?.enabled === "no" && node?.state === "running";
+  if (stopping) {
+    if (!(await ask("Stop node", `<p>Node <b>${esc(id)}</b> stops now: visitors connected now are disconnected.</p>`, "Save and stop", true))) return;
+  } else if (restart && !(await ask("Save and restart node", `<p>Node <b>${esc(id)}</b> restarts with the new settings: visitors connected now are disconnected.</p>`, "Save and restart", true))) return;
   try {
-    await api(`/api/node/${encodeURIComponent(id)}/settings`, formValues(NODE_FIELDS, "nf"));
-    if (restart) await api(`/api/node/${encodeURIComponent(id)}/restart`, {});
-    toast(restart ? "Saved and restarted" : "Saved. A new plugin file needs a restart");
+    const r = await api(`/api/node/${encodeURIComponent(id)}/settings`, vals);
+    // enabled on/off already started or stopped the node
+    if (restart && !r.applied && r.info?.state === "running") await api(`/api/node/${encodeURIComponent(id)}/restart`, {});
+    // everything applies at once except the plugin file, loaded when the node starts
+    const running = r.info?.state === "running";
+    toast(r.applied === "stopped" ? "Saved, node stopped" : r.applied === "started" ? "Saved, node started"
+      : restart ? "Saved and restarted"
+      : vals.node?.plugin !== undefined && running ? "Saved. The new plugin file loads when the node restarts"
+      : vals.node?.name !== undefined && running ? "Saved. The new name goes out with the next announce"
+      : "Saved");
     await loadOverview();
     renderNodeForm();
   } catch (err) {
@@ -1116,7 +1190,9 @@ $("#server-save").addEventListener("click", async () => {
       const el = $(`#sf-${sec}-${key}`);
       el.dataset.orig = type === "bool" ? (el.checked ? "yes" : "no") : el.value.trim();
     }
-    $("#server-msg").textContent = r.restart === false ? "Saved and applied." : "Saved. Address, port, folders and log file apply after a restart.";
+    updateUnsaved();
+    const later = SERVER_FIELDS.filter(([, key]) => (r.later || []).includes(key)).map((f) => f[3]);
+    $("#server-msg").textContent = later.length ? `Saved. ${later.join(", ")}: after a server restart (Restart server below).` : "Saved and applied.";
   } catch (err) {
     $("#server-msg").textContent = "Error: " + err.message;
   }
@@ -1129,6 +1205,7 @@ $("#pw-save").addEventListener("click", async () => {
   try {
     await api("/api/password", { password: a });
     $("#pw1").value = $("#pw2").value = "";
+    updateUnsaved();
     $("#pw-msg").textContent = a ? "Password set." : "Password removed.";
     $("#logout").classList.toggle("hidden", !a);
   } catch (err) {
@@ -1506,18 +1583,19 @@ function renderHpForm() {
   if (renderHpForm.shown === (n && n.id) && $("#hp-form").children.length) return;
   renderHpForm.shown = n && n.id;
   $("#hp-form").innerHTML = n ? formHtml(HP_FIELDS, n.settings, "hp") : `<div class="empty">No honeypot nodes.</div>`;
+  updateUnsaved();
 }
-$("#hp-node").addEventListener("change", renderHpForm);
+$("#hp-node").addEventListener("change", () => switchForm("#hp-node", "hp", renderHpForm.shown, renderHpForm));
 
 $("#hp-save").addEventListener("click", async () => {
   const id = $("#hp-node").value;
   if (!id) return;
   try {
     const vals = formValues(HP_FIELDS, "hp");
-    await api(`/api/node/${encodeURIComponent(id)}/settings`, vals);
-    $("#hp-msg").textContent = "Saved: traps and blocking apply at once.";
+    const r = await api(`/api/node/${encodeURIComponent(id)}/settings`, vals);
+    $("#hp-msg").textContent = r.applied ? `Saved, honeypot ${r.applied}.` : "Saved: traps and blocking apply at once.";
     const node = (overview?.nodes || []).find((n) => n.id === id);
-    if (vals.honeypot?.addresses && node?.state === "running"
+    if (vals.honeypot?.addresses && !r.applied && r.info?.state === "running"
         && await ask("Restart honeypot", `<p>The number of addresses changes when <b>${esc(node.name)}</b> restarts: visitors connected now are disconnected.</p>`, "Restart now")) {
       await api(`/api/node/${encodeURIComponent(id)}/restart`, {});
       $("#hp-msg").textContent = "Saved and restarted.";
@@ -1530,6 +1608,14 @@ $("#hp-save").addEventListener("click", async () => {
   }
 });
 
+$("#hist-toggle").addEventListener("click", () => {
+  const open = !histOpen();
+  $("#hist-toggle").setAttribute("aria-expanded", String(open));
+  $("#history").classList.toggle("hidden", !open);
+  $("#hist-clear").classList.toggle("hidden", !open);
+  $("#hist-panel").classList.toggle("folded", !open);
+  if (open) loadHistory(true);
+});
 $("#hist-clear").addEventListener("click", async () => {
   if (!(await ask("Clear history", "<p>The incoming connections history of every node is emptied. Stats, counters and live connections stay.</p>", "Clear history", true))) return;
   await api("/api/history/clear", {}).then(() => toast("History cleared"), (e) => toast("Error: " + e.message));
@@ -2046,9 +2132,15 @@ function linkFor(root, path) {
   return `\`[${path.split("/").pop()}\`:/page/${path}]`;
 }
 
+function setPageDirty(on) {
+  pm.dirty = on;
+  $("#pm-state").classList.toggle("unsaved-note", on);
+  updateUnsaved();
+}
+
 function showFile(f) {
   pm.cur = f;
-  pm.dirty = false;
+  setPageDirty(false);
   const ta = $("#pm-text"), info = $("#pm-info");
   $("#pm-path").textContent = f ? `${f.root}/${f.path}` : "";
   $("#pm-state").textContent = f ? `${size(f.size)}` : "";
@@ -2073,8 +2165,8 @@ function showFile(f) {
 
 $("#pm-text").addEventListener("input", () => {
   if (!pm.dirty) {
-    pm.dirty = true;
     $("#pm-state").textContent = "unsaved changes";
+    setPageDirty(true);
   }
 });
 $("#pm-text").addEventListener("keydown", (e) => {
@@ -2093,7 +2185,7 @@ async function savePage() {
   try {
     const r = await api("/api/files/save", { node: pm.node, root: pm.cur.root, path: pm.cur.path, text: $("#pm-text").value, mtime: pm.cur.mtime });
     pm.cur.mtime = r.mtime;
-    pm.dirty = false;
+    setPageDirty(false);
     $("#pm-state").textContent = `saved ${new Date().toLocaleTimeString("en-GB")}`;
     loadTree();
   } catch (err) {
@@ -2185,7 +2277,7 @@ $("#pm-close").addEventListener("click", closePages);
 $("#pm").addEventListener("cancel", (e) => { e.preventDefault(); closePages(); });
 async function closePages() {
   if (pm.dirty && !(await ask("Unsaved changes", `<p>Close without saving <b>${esc(pm.cur.path)}</b>?</p>`, "Close", true))) return;
-  pm.dirty = false;
+  setPageDirty(false);
   $("#pm").close();
   loadOverview();
 }

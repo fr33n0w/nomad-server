@@ -71,9 +71,9 @@
         <h2>Live Clients Connections</h2>
         <div id="online"></div>
       </div>
-      <div class="panel">
-        <div class="panel-head"><h2>Incoming Connections History</h2><span class="muted small">Kept on disk, the last 1000 per node, newest first.</span><span class="btn-row"><button id="hist-clear" class="btn small ghost danger">Clear history</button></span></div>
-        <div id="history"></div>
+      <div class="panel folded" id="hist-panel">
+        <div class="panel-head"><h2><button id="hist-toggle" class="fold" aria-expanded="false" aria-controls="history" title="Show or hide the history"><span class="chev" aria-hidden="true">▸</span>Incoming Connections History</button></h2><span class="muted small">Kept on disk, the last 1000 per node, newest first.</span><span class="btn-row"><button id="hist-clear" class="btn small ghost danger hidden">Clear history</button></span></div>
+        <div id="history" class="hidden"></div>
       </div>
     </section>
 
@@ -130,7 +130,7 @@
           <div id="node-addr" class="form"></div>
           <form id="node-form" class="form"></form>
           <div class="row-btns">
-            <button id="node-save" class="btn primary">Save</button>
+            <button id="node-save" class="btn save">Save</button>
             <button id="node-save-restart" class="btn">Save and restart node</button>
             <span id="node-msg" class="muted small"></span>
           </div>
@@ -152,7 +152,7 @@
           <h2>Server</h2>
           <form id="server-form" class="form"></form>
           <div class="row-btns">
-            <button id="server-save" class="btn primary">Save</button>
+            <button id="server-save" class="btn save">Save</button>
             <span id="server-msg" class="muted small"></span>
           </div>
           <h3>Web UI password</h3>
@@ -160,7 +160,7 @@
             <div class="field"><label for="pw1">New password</label><input id="pw1" type="password" autocomplete="new-password" placeholder="Empty = no password"></div>
             <div class="field"><label for="pw2">Repeat</label><input id="pw2" type="password" autocomplete="new-password"></div>
           </div>
-          <div class="row-btns"><button id="pw-save" class="btn">Set password</button><span id="pw-msg" class="muted small"></span></div>
+          <div class="row-btns"><button id="pw-save" class="btn save">Set password</button><span id="pw-msg" class="muted small"></span></div>
           <h3>Process</h3>
           <div class="row-btns"><button id="server-restart" class="btn danger">Restart server</button><button id="server-stop" class="btn ghost danger">Stop server</button><span id="restart-msg" class="muted small"></span></div>
           <div id="sc-box" class="hidden">
@@ -222,7 +222,7 @@
       <div class="panel">
         <div class="panel-head"><h2>Honeypot settings</h2><span class="pick"><span class="ndot" id="hp-dot"></span><select id="hp-node" aria-label="Honeypot node"></select></span></div>
         <form id="hp-form" class="form"></form>
-        <div class="row-btns"><button id="hp-save" class="btn primary">Save</button><span id="hp-msg" class="muted small"></span></div>
+        <div class="row-btns"><button id="hp-save" class="btn save">Save</button><span id="hp-msg" class="muted small"></span></div>
         <div class="danger-zone">
           <button id="hp-reset" class="btn ghost danger">Reset counters</button>
           <button id="hp-delete" class="btn ghost danger">Remove honeypot</button>
@@ -318,13 +318,14 @@
         <span class="grow"></span>
         <button id="pm-rename" class="btn small ghost">Rename or move</button>
         <button id="pm-delete" class="btn small ghost danger">Move to trash</button>
-        <button id="pm-save" class="btn small primary">Save</button>
+        <button id="pm-save" class="btn small save">Save</button>
       </div>
       <textarea id="pm-text" class="pm-text hidden" spellcheck="false" aria-label="File content"></textarea>
       <div id="pm-info" class="pm-info"></div>
     </section>
   </div>
 </dialog>
+<div id="unsaved" class="unsaved hidden" role="status"><span class="unsaved-dot"></span><b>Unsaved changes</b><span id="unsaved-list" class="unsaved-list"></span></div>
 <div id="toast" class="toast" role="status"></div>
 <script src="/static/app.js?v={{v}}"></script>
 </body>

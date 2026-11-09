@@ -45,7 +45,7 @@ Se `rnsd` è acceso, i nodi usano quello; altrimenti nomad-server avvia una sua 
 | Terminale | `python nomad_server.py` | log a schermo, Ctrl+C lo ferma |
 | Finestra app | `python nomad_server.py --app` | la UI in una finestra sua (pywebview se installato, altrimenti Edge o Chrome); chiudendola si ferma il server che ha avviato |
 | Windows | `start.bat`, `start_hidden.vbs` | il secondo gira senza nessuna finestra |
-| Windows senza Python | `NomadServer-CLI-v0.1.3-win.exe`, `NomadServer-APP-v0.1.3-win.exe` | da [Releases](https://github.com/fr33n0w/nomad-server/releases), vedi [Programmi senza Python](#programmi-senza-python) |
+| Windows senza Python | `NomadServer-CLI-v0.1.4-win.exe`, `NomadServer-APP-v0.1.4-win.exe` | da [Releases](https://github.com/fr33n0w/nomad-server/releases), vedi [Programmi senza Python](#programmi-senza-python) |
 | Icone | Settings > Shortcuts | desktop e menu app, Windows e desktop Linux |
 | Debian, Ubuntu, Raspberry Pi | `bash install.sh` | service systemd all'avvio, vedi [Installer](#installer-debian-ubuntu-raspberry-pi) |
 | pipx | `pipx install git+https://github.com/fr33n0w/nomad-server` | poi `nomad-server`; dati in `~/.nomad-server` |
@@ -59,13 +59,13 @@ Senza Python, per ora per Windows: estrai lo zip e doppio clic.
 
 | Programma | Cos'è |
 |---|---|
-| `NomadServer-CLI-v0.1.3-win.exe` | il server col suo terminale, come `python nomad_server.py` |
-| `NomadServer-APP-v0.1.3-win.exe` | senza terminale, la UI in una finestra sua; chiudendola il server si ferma |
+| `NomadServer-CLI-v0.1.4-win.exe` | il server col suo terminale, come `python nomad_server.py` |
+| `NomadServer-APP-v0.1.4-win.exe` | senza terminale, la UI in una finestra sua; chiudendola il server si ferma |
 
 **I dati stanno accanto al programma**: `server.cfg`, `nodes\` e `data\` nella cartella del programma. Una copia estratta da un'altra parte è un server nuovo e vuoto, con indirizzi dei nodi nuovi. Per usare sempre lo stesso server, dagli la sua cartella con `--base`, anche nei collegamenti sul desktop (Proprietà > Destinazione):
 
 ```
-NomadServer-APP-v0.1.3-win.exe --base D:\nomad-data
+NomadServer-APP-v0.1.4-win.exe --base D:\nomad-data
 ```
 
 `--base` accetta anche la cartella di un'installazione esistente, con i suoi nodi e impostazioni: prima ferma quel server. Le icone create da Settings > Shortcuts hanno già la loro cartella.
@@ -206,18 +206,31 @@ Se la porta della web UI è già occupata (per esempio da un altro nomad-server)
 
 | Opzione | |
 |---|---|
-| `--status` | nodi, interfacce, visitatori collegati adesso |
-| `--json` | con `--status`: i dati grezzi |
+| `--status` | nodi (accesi o spenti), interfacce, visitatori collegati adesso |
+| `--json` | con `--status` o `--memory`: i dati grezzi |
+| `--memory` | cosa tiene il server in RAM (thread, oggetti, tabelle Reticulum e nS); avvia il server con `NS_TRACEMALLOC=1` nell'ambiente per vedere anche le allocazioni per riga e cosa è cresciuto dal primo `--memory` |
 | `--log [N]` | ultime N righe del log (60 se N manca) |
 | `-f`, `--follow` | con `--log`: continua a mostrare le righe nuove (Ctrl+C per uscire) |
 | `--node ID` | con `--log`: solo questo nodo |
 | `--stop` | lo ferma, anche se nascosto (rifiutato sotto systemd: usa `systemctl stop nomad-server`) |
+| `--start-node NODO` | avvia un nodo (id o nome), resta abilitato |
+| `--stop-node NODO` | ferma un nodo, resta disabilitato; gli altri continuano |
+| `--restart-node NODO` | riavvia un nodo |
+| `--announce NODO` | annuncia subito un nodo |
 | `--block LXMF` | blocca un peer su tutti i nodi |
 | `--reason TESTO` | con `--block`: il motivo che gli viene mostrato |
 | `--mode MODO` | con `--block`: `page` (default, una pagina col motivo), `silent`, `tarpit` o `maze` |
 | `--unblock LXMF` | toglie un peer dalla blocklist |
 | `--blocklist` | stampa la blocklist (hash dell'identità, indirizzo LXMF, motivo) |
 | `--export-blocklist FILE` | la salva in un file di testo |
+
+`NODO` e `ID` sono l'**id** del nodo: il nome della sua cartella in `nodes/` (`nodes/micron-artist` → `micron-artist`), stampato come `id` da `--status`. `NODO` può essere anche il nome mostrato nella web UI (maiuscole o minuscole non contano, tra virgolette se ha spazi). Non l'hash dell'indirizzo.
+
+```
+python nomad_server.py --status                     # Micron Artist  [running]  id micron-artist  6591...
+python nomad_server.py --stop-node micron-artist
+python nomad_server.py --start-node "Micron Artist"
+```
 
 **Lavoro sui file** (non serve il server acceso; riavvialo dopo)
 
@@ -235,7 +248,7 @@ Se la porta della web UI è già occupata (per esempio da un altro nomad-server)
 | ![Stats](docs/stats.png) | ![Logs](docs/logs.png) |
 | **Stats**: richieste e traffico per nodo, o di tutti i nodi sommati, su 1 ora (al minuto), 24 ore, 7, 14, 30 o 90 giorni, pagine e file più visti, visitatori identificati | **Logs**: in diretta, un colore per nodo, filtri per pagine, visitatori, file e avvisi |
 
-- **Overview**: i nodi con il grafico delle richieste, le interfacce Reticulum, i client collegati adesso (un link chiuso resta lì in grigio per un minuto), la storia delle connessioni in arrivo (dalla più recente, 20 alla volta, pagine visitate per link; le ultime 1000 per nodo, in `data/history.jsonl`)
+- **Overview**: i nodi con il grafico delle richieste, le interfacce Reticulum, i client collegati adesso (un link chiuso resta lì in grigio per un minuto), la storia delle connessioni in arrivo (chiusa finché non la apri; dalla più recente, 20 alla volta, pagine visitate per link; le ultime 1000 per nodo, in `data/history.jsonl`)
 - **Settings**: impostazioni di server, web UI e nodi, identità, backup e ripristino, blocklist, nodi rimossi, icone
 - **Edit pages**: gestore di file con editor per ogni nodo; una pagina salvata viene servita subito
 - L'indirizzo mostrato nella UI si copia con un clic; sul telefono il layout si adatta
@@ -417,6 +430,21 @@ La UI è sulla porta 8484, tutto il resto in `nomad-data/`: impostazioni, nodi, 
 ## Risorse
 
 Su un server Debian con tre nodi frequentati e un plugin, il processo usa circa 95 MB: circa 36 MB sono Python e Reticulum, il resto nodi, contatori e i dati del plugin. Un server vuoto usa circa 47 MB.
+
+## Novità della 0.1.4
+
+Tutte le versioni: [CHANGELOG.md](CHANGELOG.md).
+
+- Pulsanti Save grigi finché non cambia qualcosa, poi evidenziati; un promemoria in basso a destra elenca cosa non è ancora salvato, anche dalle altre schede, e il browser avvisa prima di uscire.
+- Le modifiche scritte in Settings restano quando cambi scheda; cambiando nodo chiede prima di scartarle.
+- Avvisi di riavvio solo quando servono: il server nomina le impostazioni che aspettano un riavvio, il nodo solo per un file plugin nuovo.
+- Campo Plugin file vuoto di default (plugin.py si usa ancora se il file c'è).
+- Corretto: la casella Enabled avvia o ferma subito il nodo.
+- Comandi nuovi `--start-node`, `--stop-node`, `--restart-node`, `--announce`; id del nodo in `--status`.
+- `--memory`: cosa tiene in RAM il server acceso.
+- Storia delle connessioni nell'Overview chiusa di default.
+
+Grazie a Cascafico per i bug trovati nella 0.1.3.
 
 ## Novità della 0.1.3
 

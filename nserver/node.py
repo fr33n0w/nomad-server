@@ -445,8 +445,9 @@ class Node:
 
     def load_plugin(self):
         self.plugin = None
-        name = self.cfg.get("node", "plugin").strip()
-        path = os.path.join(self.folder, name) if name else ""
+        # empty = the default plugin.py, used only if the file is there
+        name = self.cfg.get("node", "plugin").strip() or "plugin.py"
+        path = os.path.join(self.folder, name)
         if not path or not os.path.isfile(path):
             return
         # Its own modules (import board, ...) come from the node folder

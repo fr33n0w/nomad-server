@@ -129,7 +129,7 @@ def show_status(as_json):
         print("  %-4s %-40s rx %s  tx %s" % ("up" if i["up"] else "DOWN", name[:40], size(i["rx"]), size(i["tx"])))
     for n in o["nodes"]:
         s = n["stats"]
-        print("\n%s  [%s]  %s" % (n["name"], n["state"], n["address"]))
+        print("\n%s  [%s]  id %s  %s" % (n["name"], n["state"], n["id"], n["address"]))
         if n["error"]:
             print("  error: " + n["error"])
         print("  %d online, views %d (today %d), refreshes %d, files %d, images %d, sent %s" % (
@@ -139,6 +139,50 @@ def show_status(as_json):
         for v in n["online"]:
             print("    link %s %s%s%s" % (v["link"], ("LXMF " + v["who"]) if v["who"] else "not identified",
                                           (' "%s"' % v["name"]) if v["name"] else "", " (crawler?)" if v["crawler"] else ""))
+
+
+def show_memory(as_json):
+    from nserver.log import size, span
+    m = api("/api/debug/memory")
+    if as_json:
+        print(json.dumps(m, indent=1))
+        return
+    print("pid %d, RAM %s, up %s, python %s, %d threads, %d objects" % (
+        m["pid"], size(m["rss"]), span(m["uptime"]), m["python"], m["threads"], m["gc_objects"]))
+    if m.get("status"):
+        print("  " + ", ".join("%s %s" % kv for kv in m["status"].items()))
+    for title, d in (("threads", m["thread_names"]), ("objects by type", m["types"]),
+                     ("Reticulum tables", m["rns"]), ("nomad-server tables", m["ours"])):
+        print("\n" + title)
+        for k, v in sorted(d.items(), key=lambda kv: -kv[1] if isinstance(kv[1], int) else 0):
+            print("  %10s  %s" % (v, k))
+    if m.get("traced"):
+        print("\ntraced %s (peak %s), biggest by line" % (size(m["traced"]["current"]), size(m["traced"]["peak"])))
+        for s in m["by_line"]:
+            print("  %10s %8d  %s" % (size(s["size"]), s["count"], s["where"]))
+        if "growth" in m:
+            print("\ngrowth in the last %s (since the first --memory)" % span(m["growth_since"]))
+            for s in m["growth"]:
+                print("  %10s %+8d  %s" % ("+" + size(s["size_diff"]), s["count_diff"], s["where"]))
+        else:
+            print("\nbaseline taken: run --memory again later to see what grew")
+    else:
+        print("\n(start the server with NS_TRACEMALLOC=1 in the environment to see allocations by line)")
+
+
+def node_action(action, wanted):
+    nodes = api("/api/overview")["nodes"]
+    match = [n for n in nodes if n["id"] == wanted] or [n for n in nodes if n["name"].lower() == wanted.lower()]
+    if len(match) != 1:
+        sys.exit(("More than one node is called %r, use the id: " % wanted if match else "No node %r. Nodes: " % wanted)
+                 + ", ".join("%s (%s)" % (n["id"], n["name"]) for n in (match or nodes)))
+    n = match[0]
+    r = api("/api/node/%s/%s" % (n["id"], action), {})
+    if not r.get("ok"):
+        sys.exit(r.get("error", r))
+    done = {"start": "started", "stop": "stopped", "restart": "restarted", "announce": "announced"}[action]
+    state = (r.get("info") or {}).get("state", "")
+    print("%s %s%s." % (n["name"], done, (" (now %s)" % state) if state and action != "announce" else ""))
 
 
 def show_log(follow, node, lines):
@@ -240,6 +284,8 @@ def run(args):
             open_app("http://%s/" % running)
             return
         sys.exit("nomad-server already runs on this folder (http://%s/). Stop it first with --stop." % running)
+    from nserver import memdiag
+    memdiag.start_tracing()
     srv = Server(BASE)
     stop = {"now": False}
 
@@ -309,6 +355,11 @@ def main():
     ap.add_argument("--node", help="with --log: only this node")
     ap.add_argument("--new-node", metavar="NAME", help="create a node folder")
     ap.add_argument("--stop", action="store_true", help="stop the running server (also a hidden one)")
+    ap.add_argument("--start-node", metavar="NODE", help="start one node and keep it enabled; NODE = its folder name in nodes/ (shown as id in --status) or its name")
+    ap.add_argument("--stop-node", metavar="NODE", help="stop one node (id or name) and keep it disabled")
+    ap.add_argument("--restart-node", metavar="NODE", help="restart one node (id or name)")
+    ap.add_argument("--memory", action="store_true", help="what the running server holds in memory (with --json: raw)")
+    ap.add_argument("--announce", metavar="NODE", help="announce one node (id or name) now")
     ap.add_argument("--block", metavar="LXMF", help="block a peer on every node of the running server")
     ap.add_argument("--reason", help="with --block: the reason shown to it")
     ap.add_argument("--mode", default="page", choices=("page", "silent", "tarpit", "maze"), help="with --block: how (default page)")
@@ -328,6 +379,12 @@ def main():
         r = api("/api/shutdown", {})
         print("Stopping." if r.get("ok") else r.get("error", r))
         return
+    if args.memory:
+        return show_memory(args.json)
+    for action, value in (("start", args.start_node), ("stop", args.stop_node),
+                          ("restart", args.restart_node), ("announce", args.announce)):
+        if value:
+            return node_action(action, value)
     if args.block:
         r = api("/api/blocklist/add", {"who": args.block, "reason": args.reason or "", "mode": args.mode, "node": "console"})
         print("Blocked %s (%s)." % (args.block, args.mode) if r.get("ok") else r.get("error", r))

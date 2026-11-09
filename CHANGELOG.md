@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.4
+
+- Fixed Enabled box not stopping node.
+- Added --start-node, --stop-node, --restart-node, --announce.
+- Node id shown in --status.
+- Connections history folded by default.
+- Save buttons light up on changes.
+- Added unsaved changes reminder.
+- Added --memory diagnostics.
+- Restart hint only when needed.
+- Plugin field empty by default.
+
+Thanks to Cascafico for the bugs found in 0.1.3.
+
 ## 0.1.3
 
 - Added Windows exe: CLI and APP.

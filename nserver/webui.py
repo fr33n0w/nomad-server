@@ -264,6 +264,9 @@ class Handler(BaseHTTPRequestHandler):
         srv = self.ui.server
         if p == "/api/overview":
             return self.send(200, srv.overview())
+        if p == "/api/debug/memory":
+            from . import memdiag
+            return self.send(200, memdiag.report(srv))
         if p == "/api/stats":
             node = srv.nodes.get(q.get("node", ""))
             if not node:
@@ -564,18 +567,20 @@ class Handler(BaseHTTPRequestHandler):
             if "trust_lan" in values["webui"] and not (self.ui.password_set() or self.local() or self.has_token()):
                 # otherwise a stranger could turn it on and then set the first password
                 raise PermissionError("Trust local network can only be changed from the server's own computer or with a password")
-            trust_only = values["webui"].keys() == {"trust_lan"} and not any(values[s] for s in ("server", "blocklist"))
             if "port" in values["webui"]:
                 port = int(values["webui"]["port"])
                 if not 1 <= port <= 65535:
                     raise ValueError("port out of range")
             srv.cfg.set(values)
-            if trust_only:
-                # read at every request: no restart
+            # splash, trust_lan and reasons are read when used; the rest only at start
+            later = [k for k in values["server"]] + [k for k in values["webui"] if k in ("host", "port")]
+            if "trust_lan" in values["webui"]:
                 log.line("Trust local network %s" % ("on" if srv.cfg.getbool("webui", "trust_lan") else "off"))
-                return {"ok": True, "restart": False}
-            log.line("Server settings changed: restart to apply")
-            return {"ok": True, "restart": True}
+            if later:
+                log.line("Server settings changed: restart to apply")
+            elif any(values.values()):
+                log.line("Server settings changed")
+            return {"ok": True, "restart": bool(later), "later": later}
         if p == "/api/advanced":
             on = bool(data.get("on"))
             srv.cfg.set({"webui": {"advanced": "yes" if on else "no"}})
@@ -632,7 +637,16 @@ class Handler(BaseHTTPRequestHandler):
                 values = {s: {k: v for k, v in (data.get(s) or {}).items() if k in keys.get(s, ())} for s in keys}
                 node.cfg.set({s: v for s, v in values.items() if v})
                 node.log("Settings changed from the web UI")
-                return {"ok": True, "info": node.info()}
+                applied = ""
+                if "enabled" in values["node"]:
+                    if node.cfg.getbool("node", "enabled"):
+                        if node.state != "running":
+                            node.start()
+                            applied = "started"
+                    elif node.state == "running":
+                        node.stop()
+                        applied = "stopped"
+                return {"ok": True, "applied": applied, "info": node.info()}
             else:
                 raise KeyError("unknown action")
             return {"ok": True, "info": node.info() if node.id in srv.nodes else None}

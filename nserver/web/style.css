@@ -39,6 +39,12 @@ html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.
 h2 { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
 h3 { font-size: 13px; font-weight: 600; margin: 22px 0 10px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
 .hidden { display: none !important; }
+.fold { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.fold:hover { color: var(--text); }
+.fold:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 3px; }
+.fold .chev { display: inline-block; transition: transform .15s; }
+.fold[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.panel.folded .panel-head { margin-bottom: 0; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -108,6 +114,17 @@ main.wrap { padding-top: 24px; padding-bottom: 48px; }
 .btn.danger { color: var(--bad); }
 .btn.danger:hover { border-color: var(--bad); }
 .btn:disabled { opacity: .5; cursor: default; }
+/* Save: grey while nothing changed, amber when there is something to save */
+.btn.save { color: var(--muted); }
+.btn.save.dirty { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); font-weight: 600; }
+.btn.save.dirty:hover { filter: brightness(1.08); }
+.unsaved-note { color: var(--amber) !important; font-weight: 600; }
+.unsaved { position: fixed; right: 20px; bottom: 20px; z-index: 29; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; max-width: calc(100vw - 32px); background: var(--panel-2); border: 1px solid var(--amber); border-left-width: 4px; border-radius: 9px; padding: 9px 12px; font-size: 13px; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
+.unsaved-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); animation: unsaved-pulse 1.6s ease-in-out infinite; }
+.unsaved-list { display: flex; gap: 6px; flex-wrap: wrap; }
+@keyframes unsaved-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .unsaved-dot { animation: none; } }
+@media (max-width: 560px) { .unsaved { left: 16px; right: 16px; bottom: 16px; } }
 .row-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
 .row-btns.end { justify-content: flex-end; }
 .row-btns.tight { margin-top: 0; }
